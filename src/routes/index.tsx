@@ -53,8 +53,37 @@ type ScanData = {
   mutations: string[];
   recommended: Recommended[];
   compromised: Compromised[];
+  audioPayload?: string;
   audioUrl?: string;
 };
+
+type RecentScan = { id: string; state: string; data: ScanData; createdAt: number };
+
+const RECENT_SCANS_KEY = "gf.recentScans";
+
+function normalizeAudioPayload(raw: any): string | undefined {
+  const payload = raw?.audio_payload ?? raw?.audio_base64 ?? raw?.audio ?? raw?.audio_url;
+  if (typeof payload !== "string" || !payload.length) return undefined;
+  if (payload.startsWith("data:") || payload.startsWith("http") || payload.startsWith("blob:")) return payload;
+  return `data:audio/mpeg;base64,${payload}`;
+}
+
+function audioPayloadToPlaybackUrl(payload: string): { url: string; revoke?: () => void } {
+  if (payload.startsWith("http") || payload.startsWith("blob:")) return { url: payload };
+
+  const base64 = payload.includes(",") ? payload.slice(payload.indexOf(",") + 1) : payload;
+  const binary = window.atob(base64.replace(/\s/g, ""));
+  const chunks: Uint8Array[] = [];
+  const chunkSize = 1024;
+  for (let offset = 0; offset < binary.length; offset += chunkSize) {
+    const slice = binary.slice(offset, offset + chunkSize);
+    const bytes = new Uint8Array(slice.length);
+    for (let i = 0; i < slice.length; i += 1) bytes[i] = slice.charCodeAt(i);
+    chunks.push(bytes);
+  }
+  const blobUrl = URL.createObjectURL(new Blob(chunks, { type: "audio/mpeg" }));
+  return { url: blobUrl, revoke: () => URL.revokeObjectURL(blobUrl) };
+}
 
 function normalizeScan(raw: any): ScanData {
   const mutations: string[] = Array.isArray(raw?.mutations)
@@ -73,20 +102,7 @@ function normalizeScan(raw: any): ScanData {
         : `${confidenceNum.toFixed(1)}%`
       : (confidenceNum ?? "—").toString();
 
-  let audioUrl: string | undefined;
-  const payload = raw?.audio_payload;
-  if (typeof payload === "string" && payload.length) {
-    audioUrl = payload.startsWith("data:") || payload.startsWith("http")
-      ? payload
-      : `data:audio/mpeg;base64,${payload}`;
-  } else if (typeof raw?.audio_url === "string") audioUrl = raw.audio_url;
-  else if (typeof raw?.audio_base64 === "string")
-    audioUrl = `data:audio/mpeg;base64,${raw.audio_base64}`;
-  else if (typeof raw?.audio === "string")
-    audioUrl =
-      raw.audio.startsWith("http") || raw.audio.startsWith("data:")
-        ? raw.audio
-        : `data:audio/mpeg;base64,${raw.audio}`;
+  const audioPayload = normalizeAudioPayload(raw);
 
 
   return {
@@ -117,7 +133,8 @@ function normalizeScan(raw: any): ScanData {
             resistance: a.resistance ?? a.mechanism ?? "resistant",
           }))
         : FALLBACK_COMPROMISED,
-    audioUrl,
+    audioPayload,
+    audioUrl: audioPayload,
   };
 }
 
@@ -129,22 +146,26 @@ function GenomeFirewall() {
   const [error, setError] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const [audioReady, setAudioReady] = useState(false);
-  const [recentScans, setRecentScans] = useState<{ id: string; state: string; data: ScanData }[]>(() => {
-    if (typeof window === "undefined") return [];
-    try {
-      const raw = window.localStorage.getItem("gf.recentScans");
-      if (!raw) return [];
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch { return []; }
-  });
+  const [recentScans, setRecentScans] = useState<RecentScan[]>([]);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const revokeAudioUrlRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
-      window.localStorage.setItem("gf.recentScans", JSON.stringify(recentScans));
+      const raw = window.localStorage.getItem(RECENT_SCANS_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      setRecentScans(Array.isArray(parsed) ? parsed : []);
+    } catch {}
+    setHistoryLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !historyLoaded) return;
+    try {
+      window.localStorage.setItem(RECENT_SCANS_KEY, JSON.stringify(recentScans));
     } catch {}
   }, [recentScans]);
 
@@ -155,6 +176,10 @@ function GenomeFirewall() {
       a.src = "";
     }
     audioRef.current = null;
+    if (revokeAudioUrlRef.current) {
+      revokeAudioUrlRef.current();
+      revokeAudioUrlRef.current = null;
+    }
   };
 
   const resetScan = () => {
@@ -170,9 +195,14 @@ function GenomeFirewall() {
   };
 
   const attachAudio = (data: ScanData) => {
-    if (!data.audioUrl) return;
-    const audio = new Audio(data.audioUrl);
+    const payload = data.audioPayload ?? data.audioUrl;
+    if (!payload || typeof window === "undefined") return;
+    const playback = audioPayloadToPlaybackUrl(payload);
+    revokeAudioUrlRef.current = playback.revoke ?? null;
+    const audio = new Audio(playback.url);
     audio.preload = "auto";
+    audio.muted = false;
+    audio.volume = 1.0;
     audioRef.current = audio;
     const markReady = () => setAudioReady(true);
     audio.addEventListener("canplaythrough", markReady);
@@ -183,8 +213,8 @@ function GenomeFirewall() {
     audio.addEventListener("ended", () => setPlaying(false));
     audio.addEventListener("error", () => setError("Audio failed to load"));
     audio.load();
-    // Data URIs are fully in memory — enable playback immediately as a fallback.
-    if (data.audioUrl.startsWith("data:")) {
+    // Blob URLs are local browser files — enable playback immediately as a fallback.
+    if (playback.url.startsWith("blob:")) {
       setTimeout(() => setAudioReady(true), 0);
     }
   };
@@ -236,7 +266,7 @@ function GenomeFirewall() {
           : level === "WARN" || level === "WARNING" || level === "MODERATE" || level === "MEDIUM"
           ? "warn"
           : "clear";
-      setRecentScans((prev) => [{ id: file.name, state, data }, ...prev].slice(0, 8));
+      setRecentScans((prev) => [{ id: file.name, state, data, createdAt: Date.now() }, ...prev].slice(0, 8));
       attachAudio(data);
     } catch (e: any) {
       setError(e?.message ?? "Scan failed");
@@ -248,6 +278,8 @@ function GenomeFirewall() {
   const togglePlay = () => {
     const a = audioRef.current;
     if (!a) return;
+    a.muted = false;
+    a.volume = 1.0;
     if (a.paused) a.play().catch((err) => setError(`Playback blocked: ${err?.message ?? err}`));
     else a.pause();
   };
@@ -519,7 +551,7 @@ function GenomeFirewall() {
                     <div className="text-2xl font-bold text-destructive-foreground">{scanData.confidence}</div>
                     <button
                       onClick={resetScan}
-                      className="mt-3 text-[10px] tracking-widest uppercase text-muted-foreground hover:text-foreground transition-colors"
+                      className="mt-3 inline-flex items-center justify-center rounded-lg border border-neon/60 bg-neon/15 px-4 py-2 text-[11px] font-bold tracking-widest uppercase text-neon shadow-[0_0_18px_var(--neon-glow)] transition-all hover:bg-neon hover:text-primary-foreground active:scale-95"
                     >
                       ← New Scan
                     </button>
@@ -531,10 +563,10 @@ function GenomeFirewall() {
               <section className="glass-panel p-5 flex items-center gap-5 animate-in fade-in slide-in-from-top-4 duration-500 delay-100">
                 <button
                   onClick={togglePlay}
-                  disabled={!scanData.audioUrl || !audioReady}
+                  disabled={!(scanData.audioPayload ?? scanData.audioUrl) || !audioReady}
                   className="relative w-14 h-14 rounded-full bg-neon text-primary-foreground flex items-center justify-center flex-shrink-0 hover:shadow-[0_0_30px_var(--neon-glow)] transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  {scanData.audioUrl && !audioReady ? (
+                  {(scanData.audioPayload ?? scanData.audioUrl) && !audioReady ? (
                     <span className="w-5 h-5 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
                   ) : playing ? (
                     <Pause className="w-6 h-6" fill="currentColor" />
@@ -551,7 +583,7 @@ function GenomeFirewall() {
                 </div>
                 <div className="text-right font-mono text-xs text-muted-foreground flex-shrink-0">
                   <div>
-                    {!scanData.audioUrl
+                    {!(scanData.audioPayload ?? scanData.audioUrl)
                       ? "NO AUDIO"
                       : !audioReady
                       ? "LOADING…"
