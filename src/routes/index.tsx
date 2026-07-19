@@ -174,13 +174,19 @@ function GenomeFirewall() {
     const audio = new Audio(data.audioUrl);
     audio.preload = "auto";
     audioRef.current = audio;
-    audio.addEventListener("canplaythrough", () => setAudioReady(true), { once: true });
-    audio.addEventListener("loadeddata", () => setAudioReady(true), { once: true });
+    const markReady = () => setAudioReady(true);
+    audio.addEventListener("canplaythrough", markReady);
+    audio.addEventListener("canplay", markReady);
+    audio.addEventListener("loadeddata", markReady);
     audio.addEventListener("play", () => setPlaying(true));
     audio.addEventListener("pause", () => setPlaying(false));
     audio.addEventListener("ended", () => setPlaying(false));
     audio.addEventListener("error", () => setError("Audio failed to load"));
     audio.load();
+    // Data URIs are fully in memory — enable playback immediately as a fallback.
+    if (data.audioUrl.startsWith("data:")) {
+      setTimeout(() => setAudioReady(true), 0);
+    }
   };
 
   const openHistory = (entry: { data: ScanData }) => {
