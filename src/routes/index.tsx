@@ -68,16 +68,98 @@ function normalizeAudioPayload(raw: any): string | undefined {
   return `data:audio/mpeg;base64,${payload}`;
 }
 
-function audioPayloadToPlaybackUrl(payload: string): { url: string; revoke?: () => void } {
+type AudioPlayback = { url: string; blob?: Blob; revoke?: () => void };
+
+function normalizeBase64(value: string): string {
+  const compact = value.replace(/\s/g, "").replace(/-/g, "+").replace(/_/g, "/");
+  return compact.padEnd(compact.length + ((4 - (compact.length % 4)) % 4), "=");
+}
+
+function base64ToAudioBlob(base64: string, mime = "audio/mpeg"): Blob {
+  const binary = window.atob(normalizeBase64(base64));
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
+
+async function audioPayloadToPlaybackUrl(payload: string): Promise<AudioPlayback> {
   if (payload.startsWith("http") || payload.startsWith("blob:")) return { url: payload };
 
-  const base64 = payload.includes(",") ? payload.slice(payload.indexOf(",") + 1) : payload;
-  const binary = window.atob(base64.replace(/\s/g, ""));
-  const buffer = new ArrayBuffer(binary.length);
-  const bytes = new Uint8Array(buffer);
-  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-  const blobUrl = URL.createObjectURL(new Blob([buffer], { type: "audio/mpeg" }));
-  return { url: blobUrl, revoke: () => URL.revokeObjectURL(blobUrl) };
+  const dataUriMatch = payload.match(/^data:([^;,]+)?(;base64)?,(.*)$/s);
+  const mime = dataUriMatch?.[1] || "audio/mpeg";
+  const base64 = dataUriMatch ? dataUriMatch[3] : payload;
+  let blob: Blob;
+
+  try {
+    blob = payload.startsWith("data:") ? await (await fetch(payload)).blob() : base64ToAudioBlob(base64, mime);
+    if (!blob.size) throw new Error("Empty audio blob");
+  } catch {
+    blob = base64ToAudioBlob(base64, mime);
+  }
+
+  const audioBlob = blob.type ? blob : new Blob([await blob.arrayBuffer()], { type: mime });
+  const blobUrl = URL.createObjectURL(audioBlob);
+  return { url: blobUrl, blob: audioBlob, revoke: () => URL.revokeObjectURL(blobUrl) };
+}
+
+function waitForAudioReady(element: HTMLAudioElement, timeoutMs = 4000): Promise<void> {
+  if (element.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(() => cleanup(() => reject(new Error("Audio load timed out"))), timeoutMs);
+    const cleanup = (done: () => void) => {
+      window.clearTimeout(timeout);
+      element.removeEventListener("loadeddata", onReady);
+      element.removeEventListener("canplay", onReady);
+      element.removeEventListener("error", onError);
+      done();
+    };
+    const onReady = () => cleanup(resolve);
+    const onError = () => cleanup(() => reject(new Error(element.error?.message || "Audio decode failed")));
+    element.addEventListener("loadeddata", onReady, { once: true });
+    element.addEventListener("canplay", onReady, { once: true });
+    element.addEventListener("error", onError, { once: true });
+    element.load();
+  });
+}
+
+function serializeRecentScansForStorage(scans: RecentScan[]): RecentScan[] {
+  return scans.map((scan) => ({
+    ...scan,
+    data: {
+      ...scan.data,
+      audioPayload: undefined,
+      audioUrl: scan.data.audioUrl?.startsWith("blob:") ? undefined : scan.data.audioUrl,
+    },
+  }));
+}
+
+function openRecentScansDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = window.indexedDB.open("genome-firewall", 1);
+    request.onupgradeneeded = () => request.result.createObjectStore("recent-scans");
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function readRecentScansFromDb(): Promise<RecentScan[] | null> {
+  if (typeof window === "undefined" || !window.indexedDB) return null;
+  const db = await openRecentScansDb();
+  return new Promise((resolve, reject) => {
+    const request = db.transaction("recent-scans", "readonly").objectStore("recent-scans").get("items");
+    request.onsuccess = () => resolve(Array.isArray(request.result) ? request.result : null);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function writeRecentScansToDb(scans: RecentScan[]): Promise<void> {
+  if (typeof window === "undefined" || !window.indexedDB) return;
+  const db = await openRecentScansDb();
+  await new Promise<void>((resolve, reject) => {
+    const request = db.transaction("recent-scans", "readwrite").objectStore("recent-scans").put(scans, "items");
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
 }
 
 function normalizeScan(raw: any): ScanData {
