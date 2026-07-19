@@ -580,6 +580,18 @@ function GenomeFirewall() {
                   <div className="text-neon mt-1">HIGH FIDELITY</div>
                 </div>
 
+                <audio
+                  ref={audioRef}
+                  src={audioSrc ?? undefined}
+                  preload="auto"
+                  onCanPlay={() => setAudioReady(true)}
+                  onLoadedData={() => setAudioReady(true)}
+                  onPlay={() => setPlaying(true)}
+                  onPause={() => setPlaying(false)}
+                  onEnded={() => setPlaying(false)}
+                  onError={() => { if (audioSrc) setError("Audio failed to load"); }}
+                  className="hidden"
+                />
               </section>
 
               {/* Results matrix */}
