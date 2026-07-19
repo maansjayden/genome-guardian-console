@@ -99,7 +99,7 @@ function bytesLookLikeText(bytes: Uint8Array): boolean {
 function base64ToAudioBlob(base64: string, mime = "audio/mpeg"): Blob {
   const bytes = base64ToBytes(base64);
   const detectedMime = detectAudioMime(bytes, mime);
-  return new Blob([bytes], { type: mime });
+  return new Blob([bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)], { type: detectedMime });
 }
 
 async function audioPayloadToPlaybackUrl(payload: string): Promise<AudioPlayback> {
@@ -129,7 +129,7 @@ async function audioPayloadToPlaybackUrl(payload: string): Promise<AudioPlayback
   if (!bytes.byteLength) throw new Error("Empty audio payload");
 
   const detectedMime = detectAudioMime(bytes, mime);
-  const audioBlob = new Blob([bytes], { type: detectedMime });
+  const audioBlob = new Blob([bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)], { type: detectedMime });
   const blobUrl = URL.createObjectURL(audioBlob);
   return { url: blobUrl, blob: audioBlob, revoke: () => URL.revokeObjectURL(blobUrl) };
 }
