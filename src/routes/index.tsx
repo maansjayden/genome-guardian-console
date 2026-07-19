@@ -263,8 +263,11 @@ function GenomeFirewall() {
     if (!a) return;
     a.muted = false;
     a.volume = 1.0;
-    if (a.paused) a.play().catch((err) => setError(`Playback blocked: ${err?.message ?? err}`));
-    else a.pause();
+    if (a.paused) {
+      a.play().catch((err) => setError(`Playback blocked: ${err?.message ?? err}`));
+    } else {
+      a.pause();
+    }
   };
 
 
