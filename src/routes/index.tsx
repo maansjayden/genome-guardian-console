@@ -27,14 +27,14 @@ const NODES: NodeStatus[] = [
   { name: "ElevenLabs Audio Synthesis", state: "online", latency: "89ms" },
 ];
 
-const RECOMMENDED = [
+const FALLBACK_RECOMMENDED = [
   { name: "Colistin", class: "Polymyxin", efficacy: 94 },
   { name: "Tigecycline", class: "Glycylcycline", efficacy: 88 },
   { name: "Fosfomycin", class: "Phosphonic", efficacy: 76 },
   { name: "Aztreonam + Avibactam", class: "Combination", efficacy: 82 },
 ];
 
-const COMPROMISED = [
+const FALLBACK_COMPROMISED = [
   { name: "Meropenem", class: "Carbapenem", resistance: "NDM-1" },
   { name: "Imipenem", class: "Carbapenem", resistance: "NDM-1" },
   { name: "Ertapenem", class: "Carbapenem", resistance: "NDM-1" },
@@ -42,13 +42,88 @@ const COMPROMISED = [
   { name: "Ciprofloxacin", class: "Fluoroquinolone", resistance: "gyrA mut." },
 ];
 
+type Recommended = { name: string; class: string; efficacy: number };
+type Compromised = { name: string; class: string; resistance: string };
+type ScanData = {
+  threatLevel: string;
+  title: string;
+  organism?: string;
+  description: string;
+  confidence: string;
+  mutations: string[];
+  recommended: Recommended[];
+  compromised: Compromised[];
+  audioUrl?: string;
+};
+
+function normalizeScan(raw: any): ScanData {
+  const mutations: string[] = Array.isArray(raw?.mutations)
+    ? raw.mutations
+    : raw?.mutation
+    ? [raw.mutation]
+    : raw?.detected_mutations ?? [];
+  const primary = mutations[0] ?? raw?.threat ?? "Unknown Variant";
+  const level = (raw?.threat_level ?? raw?.level ?? "CRITICAL").toString().toUpperCase();
+  const organism = raw?.organism ?? raw?.species;
+  const confidenceNum = raw?.confidence ?? raw?.score;
+  const confidence =
+    typeof confidenceNum === "number"
+      ? confidenceNum <= 1
+        ? `${(confidenceNum * 100).toFixed(1)}%`
+        : `${confidenceNum.toFixed(1)}%`
+      : (confidenceNum ?? "—").toString();
+
+  let audioUrl: string | undefined;
+  if (typeof raw?.audio_url === "string") audioUrl = raw.audio_url;
+  else if (typeof raw?.audio_base64 === "string")
+    audioUrl = `data:audio/mpeg;base64,${raw.audio_base64}`;
+  else if (typeof raw?.audio === "string")
+    audioUrl =
+      raw.audio.startsWith("http") || raw.audio.startsWith("data:")
+        ? raw.audio
+        : `data:audio/mpeg;base64,${raw.audio}`;
+
+  return {
+    threatLevel: level,
+    title: `${level}: ${primary} Detected`,
+    organism,
+    description:
+      raw?.description ??
+      raw?.summary ??
+      (organism
+        ? `${primary} detected in ${organism}. Review susceptibility profile below.`
+        : `${primary} detected. Review susceptibility profile below.`),
+    confidence,
+    mutations: mutations.length ? mutations : [primary],
+    recommended:
+      Array.isArray(raw?.recommended) && raw.recommended.length
+        ? raw.recommended.map((a: any) => ({
+            name: a.name ?? a.drug ?? "Unknown",
+            class: a.class ?? a.category ?? "—",
+            efficacy: Number(a.efficacy ?? a.score ?? 0),
+          }))
+        : FALLBACK_RECOMMENDED,
+    compromised:
+      Array.isArray(raw?.compromised) && raw.compromised.length
+        ? raw.compromised.map((a: any) => ({
+            name: a.name ?? a.drug ?? "Unknown",
+            class: a.class ?? a.category ?? "—",
+            resistance: a.resistance ?? a.mechanism ?? "resistant",
+          }))
+        : FALLBACK_COMPROMISED,
+    audioUrl,
+  };
+}
+
 function GenomeFirewall() {
   const [file, setFile] = useState<File | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [scanning, setScanning] = useState(false);
-  const [results, setResults] = useState(false);
+  const [scanData, setScanData] = useState<ScanData | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -57,14 +132,52 @@ function GenomeFirewall() {
     if (f) setFile(f);
   }, []);
 
-  const onSelect = (f: File | null) => { if (f) setFile(f); };
+  const onSelect = (f: File | null) => {
+    if (f) setFile(f);
+  };
 
-  const scan = () => {
+  const scan = async () => {
     if (!file) return;
     setScanning(true);
-    setResults(false);
-    setTimeout(() => { setScanning(false); setResults(true); }, 2600);
+    setScanData(null);
+    setError(null);
+    try {
+      const sequence = await file.text();
+      const res = await fetch("http://127.0.0.1:8000/api/scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sequence }),
+      });
+      if (!res.ok) throw new Error(`Backend error ${res.status}: ${await res.text()}`);
+      const data = normalizeScan(await res.json());
+      setScanData(data);
+      if (data.audioUrl) {
+        audioRef.current?.pause();
+        const audio = new Audio(data.audioUrl);
+        audioRef.current = audio;
+        audio.addEventListener("play", () => setPlaying(true));
+        audio.addEventListener("pause", () => setPlaying(false));
+        audio.addEventListener("ended", () => setPlaying(false));
+        audio.play().catch(() => {});
+      }
+    } catch (e: any) {
+      setError(e?.message ?? "Scan failed");
+    } finally {
+      setScanning(false);
+    }
   };
+
+  const togglePlay = () => {
+    const a = audioRef.current;
+    if (!a) {
+      setPlaying((p) => !p);
+      return;
+    }
+    if (a.paused) a.play().catch(() => {});
+    else a.pause();
+  };
+
+  const results = !!scanData;
 
   return (
     <div className="min-h-screen">
@@ -166,6 +279,7 @@ function GenomeFirewall() {
         {/* Main */}
         <main className="col-span-12 lg:col-span-9 space-y-6">
           {/* Ingest */}
+          {!results && (
           <section
             onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
             onDragLeave={() => setDragOver(false)}
@@ -221,11 +335,17 @@ function GenomeFirewall() {
                 id="fasta"
                 ref={inputRef}
                 type="file"
-                accept=".fasta,.fastq,.fa,.gb"
+                accept=".fasta,.fastq,.fa,.gb,.txt"
                 className="hidden"
                 onChange={(e) => onSelect(e.target.files?.[0] ?? null)}
               />
             </label>
+
+            {error && (
+              <div className="mt-4 p-3 rounded-lg border border-destructive/40 bg-destructive/10 text-xs font-mono text-destructive">
+                {error}
+              </div>
+            )}
 
             <div className="mt-6 flex flex-wrap items-center justify-between gap-4">
               <div className="flex items-center gap-4 text-xs font-mono text-muted-foreground">
@@ -250,6 +370,7 @@ function GenomeFirewall() {
               </button>
             </div>
           </section>
+          )}
 
           {/* Scanning skeletons */}
           {scanning && (
@@ -277,7 +398,7 @@ function GenomeFirewall() {
           )}
 
           {/* Results */}
-          {results && !scanning && (
+          {results && scanData && !scanning && (
             <>
               {/* Threat banner */}
               <section className="relative overflow-hidden rounded-lg border-2 border-destructive/60 bg-gradient-to-r from-destructive/25 via-destructive/10 to-warning/20 p-5 animate-in fade-in slide-in-from-top-4 duration-500">
@@ -288,18 +409,37 @@ function GenomeFirewall() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 text-[10px] font-mono tracking-[0.2em] text-destructive-foreground/80 mb-1">
-                      THREAT LEVEL · CRITICAL · ISO/IEC 27035
+                      THREAT LEVEL · {scanData.threatLevel} · ISO/IEC 27035
                     </div>
-                    <h3 className="text-xl font-bold tracking-tight">
-                      CRITICAL: NDM-1 Detected
-                    </h3>
+                    <h3 className="text-xl font-bold tracking-tight">{scanData.title}</h3>
                     <p className="text-sm text-foreground/80 mt-1 max-w-2xl">
-                      New Delhi Metallo-β-lactamase confers pan-carbapenem resistance in <span className="font-mono">Klebsiella pneumoniae</span>. Immediate isolation and contact-precaution protocols advised.
+                      {scanData.description}
+                      {scanData.organism && (
+                        <> Organism: <span className="font-mono">{scanData.organism}</span>.</>
+                      )}
                     </p>
+                    {scanData.mutations.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mt-3">
+                        {scanData.mutations.map((m) => (
+                          <span
+                            key={m}
+                            className="px-2.5 py-1 rounded-full bg-destructive/25 text-destructive text-[10px] font-mono font-semibold tracking-widest uppercase border border-destructive/50"
+                          >
+                            {m}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div className="text-right text-xs font-mono flex-shrink-0">
                     <div className="text-muted-foreground">CONFIDENCE</div>
-                    <div className="text-2xl font-bold text-destructive-foreground">99.4%</div>
+                    <div className="text-2xl font-bold text-destructive-foreground">{scanData.confidence}</div>
+                    <button
+                      onClick={() => { audioRef.current?.pause(); setScanData(null); setPlaying(false); }}
+                      className="mt-3 text-[10px] tracking-widest uppercase text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      ← New Scan
+                    </button>
                   </div>
                 </div>
               </section>
@@ -307,8 +447,9 @@ function GenomeFirewall() {
               {/* Audio player */}
               <section className="glass-panel p-5 flex items-center gap-5 animate-in fade-in slide-in-from-top-4 duration-500 delay-100">
                 <button
-                  onClick={() => setPlaying((p) => !p)}
-                  className="relative w-14 h-14 rounded-full bg-neon text-primary-foreground flex items-center justify-center flex-shrink-0 hover:shadow-[0_0_30px_var(--neon-glow)] transition-all active:scale-95"
+                  onClick={togglePlay}
+                  disabled={!scanData.audioUrl}
+                  className="relative w-14 h-14 rounded-full bg-neon text-primary-foreground flex items-center justify-center flex-shrink-0 hover:shadow-[0_0_30px_var(--neon-glow)] transition-all active:scale-95 disabled:opacity-40"
                 >
                   {playing ? <Pause className="w-6 h-6" fill="currentColor" /> : <Play className="w-6 h-6 ml-0.5" fill="currentColor" />}
                 </button>
@@ -320,7 +461,7 @@ function GenomeFirewall() {
                   <Waveform playing={playing} />
                 </div>
                 <div className="text-right font-mono text-xs text-muted-foreground flex-shrink-0">
-                  <div>02:14 / 04:38</div>
+                  <div>{scanData.audioUrl ? (playing ? "STREAMING" : "READY") : "NO AUDIO"}</div>
                   <div className="text-neon mt-1">HIGH FIDELITY</div>
                 </div>
               </section>
@@ -333,7 +474,7 @@ function GenomeFirewall() {
                     <h3 className="text-xl font-semibold tracking-tight">Antibiotic Susceptibility Profile</h3>
                   </div>
                   <div className="text-xs font-mono text-muted-foreground">
-                    9 compounds analyzed · <span className="text-foreground">EUCAST v14.0</span>
+                    {scanData.recommended.length + scanData.compromised.length} compounds analyzed · <span className="text-foreground">EUCAST v14.0</span>
                   </div>
                 </div>
 
@@ -343,10 +484,10 @@ function GenomeFirewall() {
                     <div className="flex items-center gap-2 mb-3 pb-2 border-b border-success/30">
                       <CheckCircle2 className="w-4 h-4 text-success" />
                       <h4 className="text-sm font-semibold tracking-widest uppercase text-success">Recommended</h4>
-                      <span className="ml-auto text-xs font-mono text-muted-foreground">{RECOMMENDED.length}</span>
+                      <span className="ml-auto text-xs font-mono text-muted-foreground">{scanData.recommended.length}</span>
                     </div>
                     <ul className="space-y-2">
-                      {RECOMMENDED.map((a) => (
+                      {scanData.recommended.map((a) => (
                         <li key={a.name} className="flex items-center justify-between p-3 rounded-lg bg-success/[0.06] border border-success/20 hover:bg-success/[0.1] transition-colors">
                           <div className="min-w-0">
                             <div className="font-medium text-sm">{a.name}</div>
@@ -368,10 +509,10 @@ function GenomeFirewall() {
                     <div className="flex items-center gap-2 mb-3 pb-2 border-b border-destructive/30">
                       <XCircle className="w-4 h-4 text-destructive" />
                       <h4 className="text-sm font-semibold tracking-widest uppercase text-destructive">Compromised</h4>
-                      <span className="ml-auto text-xs font-mono text-muted-foreground">{COMPROMISED.length}</span>
+                      <span className="ml-auto text-xs font-mono text-muted-foreground">{scanData.compromised.length}</span>
                     </div>
                     <ul className="space-y-2">
-                      {COMPROMISED.map((a) => (
+                      {scanData.compromised.map((a) => (
                         <li key={a.name} className="flex items-center justify-between p-3 rounded-lg bg-destructive/[0.08] border border-destructive/25 hover:bg-destructive/[0.12] transition-colors">
                           <div className="min-w-0">
                             <div className="font-medium text-sm">{a.name}</div>
