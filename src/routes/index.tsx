@@ -273,22 +273,23 @@ function GenomeFirewall() {
 
           <div className="glass-panel p-5">
             <h2 className="text-xs font-semibold tracking-widest text-muted-foreground uppercase mb-3">Recent Scans</h2>
-            <ul className="space-y-2 text-xs font-mono">
-              {[
-                { id: "K.pneu-8821", state: "critical" },
-                { id: "E.coli-8820", state: "clear" },
-                { id: "S.aureus-8819", state: "warn" },
-                { id: "P.aeru-8818", state: "clear" },
-              ].map((s) => (
-                <li key={s.id} className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-muted/40 transition-colors cursor-pointer">
-                  <span className="text-muted-foreground">{s.id}</span>
-                  <span className={
-                    s.state === "critical" ? "text-destructive" :
-                    s.state === "warn" ? "text-warning" : "text-success"
-                  }>{s.state.toUpperCase()}</span>
-                </li>
-              ))}
-            </ul>
+            {recentScans.length === 0 ? (
+              <p className="text-[11px] font-mono text-muted-foreground/70 italic py-2">
+                No scans yet. Ingest a sequence to begin.
+              </p>
+            ) : (
+              <ul className="space-y-2 text-xs font-mono">
+                {recentScans.map((s, i) => (
+                  <li key={`${s.id}-${i}`} className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-muted/40 transition-colors cursor-pointer gap-2">
+                    <span className="text-muted-foreground truncate">{s.id}</span>
+                    <span className={
+                      s.state === "critical" ? "text-destructive" :
+                      s.state === "warn" ? "text-warning" : "text-success"
+                    }>{s.state.toUpperCase()}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
 
           <div className="glass-panel p-5">
