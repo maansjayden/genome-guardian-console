@@ -398,7 +398,7 @@ function GenomeFirewall() {
           )}
 
           {/* Results */}
-          {results && !scanning && (
+          {results && scanData && !scanning && (
             <>
               {/* Threat banner */}
               <section className="relative overflow-hidden rounded-lg border-2 border-destructive/60 bg-gradient-to-r from-destructive/25 via-destructive/10 to-warning/20 p-5 animate-in fade-in slide-in-from-top-4 duration-500">
@@ -409,18 +409,37 @@ function GenomeFirewall() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 text-[10px] font-mono tracking-[0.2em] text-destructive-foreground/80 mb-1">
-                      THREAT LEVEL · CRITICAL · ISO/IEC 27035
+                      THREAT LEVEL · {scanData.threatLevel} · ISO/IEC 27035
                     </div>
-                    <h3 className="text-xl font-bold tracking-tight">
-                      CRITICAL: NDM-1 Detected
-                    </h3>
+                    <h3 className="text-xl font-bold tracking-tight">{scanData.title}</h3>
                     <p className="text-sm text-foreground/80 mt-1 max-w-2xl">
-                      New Delhi Metallo-β-lactamase confers pan-carbapenem resistance in <span className="font-mono">Klebsiella pneumoniae</span>. Immediate isolation and contact-precaution protocols advised.
+                      {scanData.description}
+                      {scanData.organism && (
+                        <> Organism: <span className="font-mono">{scanData.organism}</span>.</>
+                      )}
                     </p>
+                    {scanData.mutations.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mt-3">
+                        {scanData.mutations.map((m) => (
+                          <span
+                            key={m}
+                            className="px-2.5 py-1 rounded-full bg-destructive/25 text-destructive text-[10px] font-mono font-semibold tracking-widest uppercase border border-destructive/50"
+                          >
+                            {m}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div className="text-right text-xs font-mono flex-shrink-0">
                     <div className="text-muted-foreground">CONFIDENCE</div>
-                    <div className="text-2xl font-bold text-destructive-foreground">99.4%</div>
+                    <div className="text-2xl font-bold text-destructive-foreground">{scanData.confidence}</div>
+                    <button
+                      onClick={() => { audioRef.current?.pause(); setScanData(null); setPlaying(false); }}
+                      className="mt-3 text-[10px] tracking-widest uppercase text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      ← New Scan
+                    </button>
                   </div>
                 </div>
               </section>
@@ -428,8 +447,9 @@ function GenomeFirewall() {
               {/* Audio player */}
               <section className="glass-panel p-5 flex items-center gap-5 animate-in fade-in slide-in-from-top-4 duration-500 delay-100">
                 <button
-                  onClick={() => setPlaying((p) => !p)}
-                  className="relative w-14 h-14 rounded-full bg-neon text-primary-foreground flex items-center justify-center flex-shrink-0 hover:shadow-[0_0_30px_var(--neon-glow)] transition-all active:scale-95"
+                  onClick={togglePlay}
+                  disabled={!scanData.audioUrl}
+                  className="relative w-14 h-14 rounded-full bg-neon text-primary-foreground flex items-center justify-center flex-shrink-0 hover:shadow-[0_0_30px_var(--neon-glow)] transition-all active:scale-95 disabled:opacity-40"
                 >
                   {playing ? <Pause className="w-6 h-6" fill="currentColor" /> : <Play className="w-6 h-6 ml-0.5" fill="currentColor" />}
                 </button>
@@ -441,7 +461,7 @@ function GenomeFirewall() {
                   <Waveform playing={playing} />
                 </div>
                 <div className="text-right font-mono text-xs text-muted-foreground flex-shrink-0">
-                  <div>02:14 / 04:38</div>
+                  <div>{scanData.audioUrl ? (playing ? "STREAMING" : "READY") : "NO AUDIO"}</div>
                   <div className="text-neon mt-1">HIGH FIDELITY</div>
                 </div>
               </section>
@@ -454,7 +474,7 @@ function GenomeFirewall() {
                     <h3 className="text-xl font-semibold tracking-tight">Antibiotic Susceptibility Profile</h3>
                   </div>
                   <div className="text-xs font-mono text-muted-foreground">
-                    9 compounds analyzed · <span className="text-foreground">EUCAST v14.0</span>
+                    {scanData.recommended.length + scanData.compromised.length} compounds analyzed · <span className="text-foreground">EUCAST v14.0</span>
                   </div>
                 </div>
 
@@ -464,10 +484,10 @@ function GenomeFirewall() {
                     <div className="flex items-center gap-2 mb-3 pb-2 border-b border-success/30">
                       <CheckCircle2 className="w-4 h-4 text-success" />
                       <h4 className="text-sm font-semibold tracking-widest uppercase text-success">Recommended</h4>
-                      <span className="ml-auto text-xs font-mono text-muted-foreground">{RECOMMENDED.length}</span>
+                      <span className="ml-auto text-xs font-mono text-muted-foreground">{scanData.recommended.length}</span>
                     </div>
                     <ul className="space-y-2">
-                      {RECOMMENDED.map((a) => (
+                      {scanData.recommended.map((a) => (
                         <li key={a.name} className="flex items-center justify-between p-3 rounded-lg bg-success/[0.06] border border-success/20 hover:bg-success/[0.1] transition-colors">
                           <div className="min-w-0">
                             <div className="font-medium text-sm">{a.name}</div>
@@ -489,10 +509,10 @@ function GenomeFirewall() {
                     <div className="flex items-center gap-2 mb-3 pb-2 border-b border-destructive/30">
                       <XCircle className="w-4 h-4 text-destructive" />
                       <h4 className="text-sm font-semibold tracking-widest uppercase text-destructive">Compromised</h4>
-                      <span className="ml-auto text-xs font-mono text-muted-foreground">{COMPROMISED.length}</span>
+                      <span className="ml-auto text-xs font-mono text-muted-foreground">{scanData.compromised.length}</span>
                     </div>
                     <ul className="space-y-2">
-                      {COMPROMISED.map((a) => (
+                      {scanData.compromised.map((a) => (
                         <li key={a.name} className="flex items-center justify-between p-3 rounded-lg bg-destructive/[0.08] border border-destructive/25 hover:bg-destructive/[0.12] transition-colors">
                           <div className="min-w-0">
                             <div className="font-medium text-sm">{a.name}</div>
