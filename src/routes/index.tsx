@@ -167,8 +167,9 @@ function GenomeFirewall() {
   const stopAudio = () => {
     const a = audioRef.current;
     if (a) {
+      (a as any).__disposed = true;
       try { a.pause(); } catch {}
-      a.src = "";
+      try { a.removeAttribute("src"); a.load(); } catch {}
     }
     audioRef.current = null;
     if (revokeAudioUrlRef.current) {
