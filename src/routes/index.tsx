@@ -129,8 +129,21 @@ function GenomeFirewall() {
   const [error, setError] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const [audioReady, setAudioReady] = useState(false);
+  const [recentScans, setRecentScans] = useState<{ id: string; state: string }[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const resetScan = () => {
+    audioRef.current?.pause();
+    audioRef.current = null;
+    setScanData(null);
+    setFile(null);
+    setError(null);
+    setPlaying(false);
+    setAudioReady(false);
+    setDragOver(false);
+    if (inputRef.current) inputRef.current.value = "";
+  };
 
 
   const onDrop = useCallback((e: React.DragEvent) => {
