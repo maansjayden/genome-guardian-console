@@ -149,6 +149,9 @@ function GenomeFirewall() {
     setScanning(true);
     setScanData(null);
     setError(null);
+    setAudioReady(false);
+    audioRef.current?.pause();
+    audioRef.current = null;
     try {
       const sequence = await file.text();
       const res = await fetch("http://127.0.0.1:8000/api/scan", {
@@ -160,13 +163,16 @@ function GenomeFirewall() {
       const data = normalizeScan(await res.json());
       setScanData(data);
       if (data.audioUrl) {
-        audioRef.current?.pause();
         const audio = new Audio(data.audioUrl);
+        audio.preload = "auto";
         audioRef.current = audio;
+        audio.addEventListener("canplaythrough", () => setAudioReady(true), { once: true });
+        audio.addEventListener("loadeddata", () => setAudioReady(true), { once: true });
         audio.addEventListener("play", () => setPlaying(true));
         audio.addEventListener("pause", () => setPlaying(false));
         audio.addEventListener("ended", () => setPlaying(false));
-        audio.play().catch(() => {});
+        audio.addEventListener("error", () => setError("Audio failed to load"));
+        audio.load();
       }
     } catch (e: any) {
       setError(e?.message ?? "Scan failed");
@@ -177,13 +183,11 @@ function GenomeFirewall() {
 
   const togglePlay = () => {
     const a = audioRef.current;
-    if (!a) {
-      setPlaying((p) => !p);
-      return;
-    }
-    if (a.paused) a.play().catch(() => {});
+    if (!a) return;
+    if (a.paused) a.play().catch((err) => setError(`Playback blocked: ${err?.message ?? err}`));
     else a.pause();
   };
+
 
   const results = !!scanData;
 
