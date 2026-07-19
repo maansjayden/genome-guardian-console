@@ -134,6 +134,13 @@ async function audioPayloadToPlaybackUrl(payload: string): Promise<AudioPlayback
   }
   if (!bytes.byteLength) throw new Error("Empty audio payload");
 
+  if (bytesLookLikeText(bytes)) {
+    const decoded = new TextDecoder().decode(bytes).trim().replace(/^['"]|['"]$/g, "");
+    if (decoded !== source && (decoded.startsWith("data:audio") || decoded.startsWith("http") || decoded.startsWith("blob:"))) {
+      return audioPayloadToPlaybackUrl(decoded);
+    }
+  }
+
   const detectedMime = detectAudioMime(bytes, mime);
   const audioBlob = new Blob([bytesToArrayBuffer(bytes)], { type: detectedMime });
   const blobUrl = URL.createObjectURL(audioBlob);
@@ -355,6 +362,14 @@ function GenomeFirewall() {
     revokeAudioUrlRef.current = playback.revoke ?? null;
     audioBlobRef.current = playback.blob ?? null;
     audioBufferRef.current = null;
+    const currentAudio = audioRef.current;
+    if (currentAudio) {
+      currentAudio.pause();
+      currentAudio.src = playback.url;
+      currentAudio.muted = false;
+      currentAudio.volume = 1.0;
+      currentAudio.load();
+    }
     setAudioSrc(playback.url);
     window.setTimeout(() => {
       const a = audioRef.current;
