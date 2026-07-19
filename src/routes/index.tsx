@@ -175,6 +175,14 @@ function GenomeFirewall() {
       if (!res.ok) throw new Error(`Backend error ${res.status}: ${await res.text()}`);
       const data = normalizeScan(await res.json());
       setScanData(data);
+      const level = data.threatLevel.toUpperCase();
+      const state =
+        level === "CRITICAL" || level === "HIGH"
+          ? "critical"
+          : level === "WARN" || level === "WARNING" || level === "MODERATE" || level === "MEDIUM"
+          ? "warn"
+          : "clear";
+      setRecentScans((prev) => [{ id: file.name, state }, ...prev].slice(0, 8));
       if (data.audioUrl) {
         const audio = new Audio(data.audioUrl);
         audio.preload = "auto";
