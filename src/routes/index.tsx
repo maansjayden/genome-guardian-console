@@ -485,16 +485,10 @@ function GenomeFirewall() {
   };
 
   const togglePlay = async () => {
-    if (webAudioSourceRef.current) {
-      try { webAudioSourceRef.current.stop(); } catch {}
-      try { webAudioSourceRef.current.disconnect(); } catch {}
-      webAudioSourceRef.current = null;
-      setPlaying(false);
-      return;
-    }
-
     const a = audioRef.current;
-    if (a && !a.paused) {
+    if (!a || !audioSrc) return;
+
+    if (!a.paused) {
       a.pause();
       setPlaying(false);
       return;
@@ -502,49 +496,15 @@ function GenomeFirewall() {
 
     setError(null);
 
-    if (a && audioSrc) {
-      try {
-        if ((a.currentSrc || a.src) !== audioSrc) {
-          a.src = audioSrc;
-          a.load();
-        }
-        a.muted = false;
-        a.volume = 1.0;
-        await waitForAudioReady(a, 6000);
-        await a.play();
-        setPlaying(true);
-        return;
-      } catch (err: any) {
-        console.debug("Genome Firewall media element playback failure", { error: err?.message ?? String(err), code: a.error?.code, readyState: a.readyState });
-        if (!audioBlobRef.current) {
-          setError(`Playback failed: ${err?.message ?? err}`);
-          return;
-        }
-      }
-    }
-
-    if (audioBlobRef.current) {
-      try {
-        const ctx = audioContextRef.current ?? getAudioContext();
-        audioContextRef.current = ctx;
-        const buffer = audioBufferRef.current ?? await ctx.decodeAudioData(await audioBlobRef.current.arrayBuffer());
-        audioBufferRef.current = buffer;
-        const source = ctx.createBufferSource();
-        source.buffer = buffer;
-        source.connect(ctx.destination);
-        source.onended = () => {
-          if (webAudioSourceRef.current === source) webAudioSourceRef.current = null;
-          setPlaying(false);
-        };
-        await ctx.resume();
-        source.start(0);
-        webAudioSourceRef.current = source;
-        setPlaying(true);
-        return;
-      } catch (err: any) {
-        console.debug("Genome Firewall WebAudio playback failure", { error: err?.message ?? String(err), bytes: audioBlobRef.current?.size ?? 0, mime: audioBlobRef.current?.type ?? "" });
-        setError(`Audio decode failed: ${err?.message ?? err}`);
-      }
+    try {
+      a.muted = false;
+      a.volume = 1.0;
+      await a.play();
+      setPlaying(true);
+    } catch (err: any) {
+      console.error("Genome Firewall media element playback failure", err);
+      setError(`Playback failed: ${err?.message ?? err}`);
+      setPlaying(false);
     }
   };
 
