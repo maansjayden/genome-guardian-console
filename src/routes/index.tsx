@@ -75,29 +75,77 @@ function normalizeBase64(value: string): string {
   return compact.padEnd(compact.length + ((4 - (compact.length % 4)) % 4), "=");
 }
 
-function base64ToAudioBlob(base64: string, mime = "audio/mpeg"): Blob {
+function base64ToBytes(base64: string): Uint8Array {
   const binary = window.atob(normalizeBase64(base64));
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-  return new Blob([bytes], { type: mime });
+  return bytes;
+}
+
+function detectAudioMime(bytes: Uint8Array, fallback = "audio/mpeg"): string {
+  const header = String.fromCharCode(...bytes.slice(0, 12));
+  if (header.startsWith("ID3") || (bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0)) return "audio/mpeg";
+  if (header.startsWith("RIFF") && header.slice(8, 12) === "WAVE") return "audio/wav";
+  if (header.startsWith("OggS")) return "audio/ogg";
+  if (header.slice(4, 8) === "ftyp") return "audio/mp4";
+  return fallback;
+}
+
+function bytesLookLikeText(bytes: Uint8Array): boolean {
+  const sample = bytes.slice(0, 32);
+  return sample.every((byte) => byte === 9 || byte === 10 || byte === 13 || (byte >= 32 && byte <= 126));
+}
+
+function bytesToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  return buffer;
+}
+
+function base64ToAudioBlob(base64: string, mime = "audio/mpeg"): Blob {
+  const bytes = base64ToBytes(base64);
+  const detectedMime = detectAudioMime(bytes, mime);
+  return new Blob([bytesToArrayBuffer(bytes)], { type: detectedMime });
 }
 
 async function audioPayloadToPlaybackUrl(payload: string): Promise<AudioPlayback> {
-  if (payload.startsWith("http") || payload.startsWith("blob:")) return { url: payload };
+  let source = payload.trim().replace(/^['"]|['"]$/g, "");
+  source = source.replace(/^b(['"])(.*)\1$/s, "$2");
+  if (source.startsWith("http") || source.startsWith("blob:")) return { url: source };
 
-  const dataUriMatch = payload.match(/^data:([^;,]+)?(;base64)?,(.*)$/s);
-  const mime = dataUriMatch?.[1] || "audio/mpeg";
-  const base64 = dataUriMatch ? dataUriMatch[3] : payload;
-  let blob: Blob;
-
-  try {
-    blob = payload.startsWith("data:") ? await (await fetch(payload)).blob() : base64ToAudioBlob(base64, mime);
-    if (!blob.size) throw new Error("Empty audio blob");
-  } catch {
-    blob = base64ToAudioBlob(base64, mime);
+  for (let depth = 0; depth < 2; depth += 1) {
+    const maybeBytes = source.startsWith("data:") ? null : base64ToBytes(source);
+    if (!maybeBytes || !bytesLookLikeText(maybeBytes)) break;
+    const decoded = new TextDecoder().decode(maybeBytes).trim().replace(/^['"]|['"]$/g, "");
+    if (!decoded.startsWith("data:audio")) break;
+    source = decoded;
   }
 
-  const audioBlob = blob.type ? blob : new Blob([await blob.arrayBuffer()], { type: mime });
+  const dataUriMatch = source.match(/^data:([^;,]+)?(?:;[^,]*)?(;base64)?,(.*)$/s);
+  const mime = dataUriMatch?.[1] || "audio/mpeg";
+  const isBase64 = !dataUriMatch || Boolean(dataUriMatch[2]) || source.includes(";base64,");
+
+  let bytes: Uint8Array;
+  if (dataUriMatch) {
+    const encodedPayload = dataUriMatch[3].trim().replace(/^b(['"])(.*)\1$/s, "$2");
+    bytes = isBase64
+      ? base64ToBytes(encodedPayload)
+      : new TextEncoder().encode(decodeURIComponent(encodedPayload));
+  } else {
+    bytes = base64ToBytes(source);
+  }
+  if (!bytes.byteLength) throw new Error("Empty audio payload");
+
+  if (bytesLookLikeText(bytes)) {
+    const decoded = new TextDecoder().decode(bytes).trim().replace(/^['"]|['"]$/g, "");
+    if (decoded !== source && (decoded.startsWith("data:audio") || decoded.startsWith("http") || decoded.startsWith("blob:"))) {
+      return audioPayloadToPlaybackUrl(decoded);
+    }
+  }
+
+  const detectedMime = detectAudioMime(bytes, mime);
+  const audioBlob = new Blob([bytesToArrayBuffer(bytes)], { type: detectedMime });
+  console.debug("Genome Firewall audio payload", { bytes: audioBlob.size, mime: detectedMime, header: Array.from(bytes.slice(0, 4)) });
   const blobUrl = URL.createObjectURL(audioBlob);
   return { url: blobUrl, blob: audioBlob, revoke: () => URL.revokeObjectURL(blobUrl) };
 }
@@ -317,8 +365,15 @@ function GenomeFirewall() {
     revokeAudioUrlRef.current = playback.revoke ?? null;
     audioBlobRef.current = playback.blob ?? null;
     audioBufferRef.current = null;
+    const currentAudio = audioRef.current;
+    if (currentAudio) {
+      currentAudio.pause();
+      currentAudio.src = playback.url;
+      currentAudio.muted = false;
+      currentAudio.volume = 1.0;
+      currentAudio.load();
+    }
     setAudioSrc(playback.url);
-    if (playback.blob) setAudioReady(true);
     window.setTimeout(() => {
       const a = audioRef.current;
       if (!a || a.src !== playback.url) return;
@@ -326,7 +381,10 @@ function GenomeFirewall() {
       a.volume = 1.0;
       waitForAudioReady(a)
         .then(() => setAudioReady(true))
-        .catch((err) => { if (!playback.blob) setError(`Audio failed to load: ${err?.message ?? err}`); });
+        .catch((err) => {
+          console.debug("Genome Firewall audio load failure", { error: err?.message ?? String(err), code: a.error?.code, src: a.currentSrc || a.src });
+          setError(`Audio failed to load: ${err?.message ?? err}`);
+        });
     }, 0);
   };
 
@@ -355,6 +413,10 @@ function GenomeFirewall() {
       setFile(f);
       setError(null);
     }
+  };
+
+  const onFileInput = (e: React.ChangeEvent<HTMLInputElement> | React.FormEvent<HTMLInputElement>) => {
+    onSelect(e.currentTarget.files?.[0] ?? null);
   };
 
   const scan = async () => {
@@ -408,6 +470,27 @@ function GenomeFirewall() {
 
     setError(null);
 
+    if (a && audioSrc) {
+      try {
+        if ((a.currentSrc || a.src) !== audioSrc) {
+          a.src = audioSrc;
+          a.load();
+        }
+        a.muted = false;
+        a.volume = 1.0;
+        await waitForAudioReady(a, 6000);
+        await a.play();
+        setPlaying(true);
+        return;
+      } catch (err: any) {
+        console.debug("Genome Firewall media element playback failure", { error: err?.message ?? String(err), code: a.error?.code, readyState: a.readyState });
+        if (!audioBlobRef.current) {
+          setError(`Playback failed: ${err?.message ?? err}`);
+          return;
+        }
+      }
+    }
+
     if (audioBlobRef.current) {
       try {
         const ctx = audioContextRef.current ?? getAudioContext();
@@ -427,17 +510,9 @@ function GenomeFirewall() {
         setPlaying(true);
         return;
       } catch (err: any) {
+        console.debug("Genome Firewall WebAudio playback failure", { error: err?.message ?? String(err), bytes: audioBlobRef.current?.size ?? 0, mime: audioBlobRef.current?.type ?? "" });
         setError(`Audio decode failed: ${err?.message ?? err}`);
       }
-    }
-
-    if (!a) return;
-    a.muted = false;
-    a.volume = 1.0;
-    try {
-      await a.play();
-    } catch (err: any) {
-      setError(`Playback blocked: ${err?.message ?? err}`);
     }
   };
 
@@ -609,7 +684,8 @@ function GenomeFirewall() {
                 type="file"
                 accept=".fasta,.fastq,.fa,.gb,.txt"
                 className="hidden"
-                onChange={(e) => onSelect(e.target.files?.[0] ?? null)}
+                onChange={onFileInput}
+                onInput={onFileInput}
                 onClick={(e) => { e.currentTarget.value = ""; }}
               />
             </label>
