@@ -128,8 +128,10 @@ function GenomeFirewall() {
   const [scanData, setScanData] = useState<ScanData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
+  const [audioReady, setAudioReady] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
 
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
