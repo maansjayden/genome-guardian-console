@@ -129,9 +129,24 @@ function GenomeFirewall() {
   const [error, setError] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const [audioReady, setAudioReady] = useState(false);
-  const [recentScans, setRecentScans] = useState<{ id: string; state: string; data: ScanData }[]>([]);
+  const [recentScans, setRecentScans] = useState<{ id: string; state: string; data: ScanData }[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const raw = window.localStorage.getItem("gf.recentScans");
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch { return []; }
+  });
   const inputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem("gf.recentScans", JSON.stringify(recentScans));
+    } catch {}
+  }, [recentScans]);
 
   const stopAudio = () => {
     const a = audioRef.current;
