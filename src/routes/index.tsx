@@ -73,15 +73,10 @@ function audioPayloadToPlaybackUrl(payload: string): { url: string; revoke?: () 
 
   const base64 = payload.includes(",") ? payload.slice(payload.indexOf(",") + 1) : payload;
   const binary = window.atob(base64.replace(/\s/g, ""));
-  const chunks: Uint8Array[] = [];
-  const chunkSize = 1024;
-  for (let offset = 0; offset < binary.length; offset += chunkSize) {
-    const slice = binary.slice(offset, offset + chunkSize);
-    const bytes = new Uint8Array(slice.length);
-    for (let i = 0; i < slice.length; i += 1) bytes[i] = slice.charCodeAt(i);
-    chunks.push(bytes);
-  }
-  const blobUrl = URL.createObjectURL(new Blob(chunks, { type: "audio/mpeg" }));
+  const buffer = new ArrayBuffer(binary.length);
+  const bytes = new Uint8Array(buffer);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  const blobUrl = URL.createObjectURL(new Blob([buffer], { type: "audio/mpeg" }));
   return { url: blobUrl, revoke: () => URL.revokeObjectURL(blobUrl) };
 }
 
@@ -167,7 +162,7 @@ function GenomeFirewall() {
     try {
       window.localStorage.setItem(RECENT_SCANS_KEY, JSON.stringify(recentScans));
     } catch {}
-  }, [recentScans]);
+  }, [recentScans, historyLoaded]);
 
   const stopAudio = () => {
     const a = audioRef.current;
