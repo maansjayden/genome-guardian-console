@@ -122,6 +122,11 @@ function waitForAudioReady(element: HTMLAudioElement, timeoutMs = 4000): Promise
   });
 }
 
+function getAudioContext(): AudioContext {
+  const AudioContextCtor = window.AudioContext ?? (window as any).webkitAudioContext;
+  return new AudioContextCtor();
+}
+
 function serializeRecentScansForStorage(scans: RecentScan[]): RecentScan[] {
   return scans.map((scan) => ({
     ...scan,
@@ -229,6 +234,10 @@ function GenomeFirewall() {
   const inputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const revokeAudioUrlRef = useRef<(() => void) | null>(null);
+  const audioBlobRef = useRef<Blob | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const audioBufferRef = useRef<AudioBuffer | null>(null);
+  const webAudioSourceRef = useRef<AudioBufferSourceNode | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -265,11 +274,19 @@ function GenomeFirewall() {
   }, [recentScans, historyLoaded]);
 
   const stopAudio = () => {
+    if (webAudioSourceRef.current) {
+      try { webAudioSourceRef.current.stop(); } catch {}
+      try { webAudioSourceRef.current.disconnect(); } catch {}
+      webAudioSourceRef.current = null;
+    }
     const a = audioRef.current;
     if (a) {
       try { a.pause(); } catch {}
     }
+    audioBlobRef.current = null;
+    audioBufferRef.current = null;
     setAudioSrc(null);
+    setPlaying(false);
     if (revokeAudioUrlRef.current) {
       revokeAudioUrlRef.current();
       revokeAudioUrlRef.current = null;
@@ -298,7 +315,10 @@ function GenomeFirewall() {
     }
     const playback = await audioPayloadToPlaybackUrl(payload);
     revokeAudioUrlRef.current = playback.revoke ?? null;
+    audioBlobRef.current = playback.blob ?? null;
+    audioBufferRef.current = null;
     setAudioSrc(playback.url);
+    if (playback.blob) setAudioReady(true);
     window.setTimeout(() => {
       const a = audioRef.current;
       if (!a || a.src !== playback.url) return;
@@ -306,7 +326,7 @@ function GenomeFirewall() {
       a.volume = 1.0;
       waitForAudioReady(a)
         .then(() => setAudioReady(true))
-        .catch((err) => setError(`Audio failed to load: ${err?.message ?? err}`));
+        .catch((err) => { if (!playback.blob) setError(`Audio failed to load: ${err?.message ?? err}`); });
     }, 0);
   };
 
@@ -331,7 +351,10 @@ function GenomeFirewall() {
   }, []);
 
   const onSelect = (f: File | null) => {
-    if (f) setFile(f);
+    if (f) {
+      setFile(f);
+      setError(null);
+    }
   };
 
   const scan = async () => {
@@ -367,15 +390,54 @@ function GenomeFirewall() {
     }
   };
 
-  const togglePlay = () => {
+  const togglePlay = async () => {
+    if (webAudioSourceRef.current) {
+      try { webAudioSourceRef.current.stop(); } catch {}
+      try { webAudioSourceRef.current.disconnect(); } catch {}
+      webAudioSourceRef.current = null;
+      setPlaying(false);
+      return;
+    }
+
     const a = audioRef.current;
+    if (a && !a.paused) {
+      a.pause();
+      setPlaying(false);
+      return;
+    }
+
+    setError(null);
+
+    if (audioBlobRef.current) {
+      try {
+        const ctx = audioContextRef.current ?? getAudioContext();
+        audioContextRef.current = ctx;
+        const buffer = audioBufferRef.current ?? await ctx.decodeAudioData(await audioBlobRef.current.arrayBuffer());
+        audioBufferRef.current = buffer;
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(ctx.destination);
+        source.onended = () => {
+          if (webAudioSourceRef.current === source) webAudioSourceRef.current = null;
+          setPlaying(false);
+        };
+        await ctx.resume();
+        source.start(0);
+        webAudioSourceRef.current = source;
+        setPlaying(true);
+        return;
+      } catch (err: any) {
+        setError(`Audio decode failed: ${err?.message ?? err}`);
+      }
+    }
+
     if (!a) return;
     a.muted = false;
     a.volume = 1.0;
-    if (a.paused) {
-      a.play().catch((err) => setError(`Playback blocked: ${err?.message ?? err}`));
-    } else {
-      a.pause();
+    try {
+      await a.play();
+    } catch (err: any) {
+      setError(`Playback blocked: ${err?.message ?? err}`);
     }
   };
 
@@ -548,6 +610,7 @@ function GenomeFirewall() {
                 accept=".fasta,.fastq,.fa,.gb,.txt"
                 className="hidden"
                 onChange={(e) => onSelect(e.target.files?.[0] ?? null)}
+                onClick={(e) => { e.currentTarget.value = ""; }}
               />
             </label>
 
