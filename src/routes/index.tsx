@@ -74,7 +74,12 @@ function normalizeScan(raw: any): ScanData {
       : (confidenceNum ?? "—").toString();
 
   let audioUrl: string | undefined;
-  if (typeof raw?.audio_url === "string") audioUrl = raw.audio_url;
+  const payload = raw?.audio_payload;
+  if (typeof payload === "string" && payload.length) {
+    audioUrl = payload.startsWith("data:") || payload.startsWith("http")
+      ? payload
+      : `data:audio/mpeg;base64,${payload}`;
+  } else if (typeof raw?.audio_url === "string") audioUrl = raw.audio_url;
   else if (typeof raw?.audio_base64 === "string")
     audioUrl = `data:audio/mpeg;base64,${raw.audio_base64}`;
   else if (typeof raw?.audio === "string")
@@ -82,6 +87,7 @@ function normalizeScan(raw: any): ScanData {
       raw.audio.startsWith("http") || raw.audio.startsWith("data:")
         ? raw.audio
         : `data:audio/mpeg;base64,${raw.audio}`;
+
 
   return {
     threatLevel: level,
@@ -122,8 +128,10 @@ function GenomeFirewall() {
   const [scanData, setScanData] = useState<ScanData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
+  const [audioReady, setAudioReady] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
 
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -141,6 +149,9 @@ function GenomeFirewall() {
     setScanning(true);
     setScanData(null);
     setError(null);
+    setAudioReady(false);
+    audioRef.current?.pause();
+    audioRef.current = null;
     try {
       const sequence = await file.text();
       const res = await fetch("http://127.0.0.1:8000/api/scan", {
@@ -152,13 +163,16 @@ function GenomeFirewall() {
       const data = normalizeScan(await res.json());
       setScanData(data);
       if (data.audioUrl) {
-        audioRef.current?.pause();
         const audio = new Audio(data.audioUrl);
+        audio.preload = "auto";
         audioRef.current = audio;
+        audio.addEventListener("canplaythrough", () => setAudioReady(true), { once: true });
+        audio.addEventListener("loadeddata", () => setAudioReady(true), { once: true });
         audio.addEventListener("play", () => setPlaying(true));
         audio.addEventListener("pause", () => setPlaying(false));
         audio.addEventListener("ended", () => setPlaying(false));
-        audio.play().catch(() => {});
+        audio.addEventListener("error", () => setError("Audio failed to load"));
+        audio.load();
       }
     } catch (e: any) {
       setError(e?.message ?? "Scan failed");
@@ -169,13 +183,11 @@ function GenomeFirewall() {
 
   const togglePlay = () => {
     const a = audioRef.current;
-    if (!a) {
-      setPlaying((p) => !p);
-      return;
-    }
-    if (a.paused) a.play().catch(() => {});
+    if (!a) return;
+    if (a.paused) a.play().catch((err) => setError(`Playback blocked: ${err?.message ?? err}`));
     else a.pause();
   };
+
 
   const results = !!scanData;
 
@@ -435,7 +447,7 @@ function GenomeFirewall() {
                     <div className="text-muted-foreground">CONFIDENCE</div>
                     <div className="text-2xl font-bold text-destructive-foreground">{scanData.confidence}</div>
                     <button
-                      onClick={() => { audioRef.current?.pause(); setScanData(null); setPlaying(false); }}
+                      onClick={() => { audioRef.current?.pause(); audioRef.current = null; setScanData(null); setPlaying(false); setAudioReady(false); }}
                       className="mt-3 text-[10px] tracking-widest uppercase text-muted-foreground hover:text-foreground transition-colors"
                     >
                       ← New Scan
@@ -448,10 +460,16 @@ function GenomeFirewall() {
               <section className="glass-panel p-5 flex items-center gap-5 animate-in fade-in slide-in-from-top-4 duration-500 delay-100">
                 <button
                   onClick={togglePlay}
-                  disabled={!scanData.audioUrl}
-                  className="relative w-14 h-14 rounded-full bg-neon text-primary-foreground flex items-center justify-center flex-shrink-0 hover:shadow-[0_0_30px_var(--neon-glow)] transition-all active:scale-95 disabled:opacity-40"
+                  disabled={!scanData.audioUrl || !audioReady}
+                  className="relative w-14 h-14 rounded-full bg-neon text-primary-foreground flex items-center justify-center flex-shrink-0 hover:shadow-[0_0_30px_var(--neon-glow)] transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  {playing ? <Pause className="w-6 h-6" fill="currentColor" /> : <Play className="w-6 h-6 ml-0.5" fill="currentColor" />}
+                  {scanData.audioUrl && !audioReady ? (
+                    <span className="w-5 h-5 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
+                  ) : playing ? (
+                    <Pause className="w-6 h-6" fill="currentColor" />
+                  ) : (
+                    <Play className="w-6 h-6 ml-0.5" fill="currentColor" />
+                  )}
                 </button>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 text-[10px] font-mono text-muted-foreground tracking-widest uppercase mb-1">
@@ -461,9 +479,18 @@ function GenomeFirewall() {
                   <Waveform playing={playing} />
                 </div>
                 <div className="text-right font-mono text-xs text-muted-foreground flex-shrink-0">
-                  <div>{scanData.audioUrl ? (playing ? "STREAMING" : "READY") : "NO AUDIO"}</div>
+                  <div>
+                    {!scanData.audioUrl
+                      ? "NO AUDIO"
+                      : !audioReady
+                      ? "LOADING…"
+                      : playing
+                      ? "STREAMING"
+                      : "READY"}
+                  </div>
                   <div className="text-neon mt-1">HIGH FIDELITY</div>
                 </div>
+
               </section>
 
               {/* Results matrix */}
