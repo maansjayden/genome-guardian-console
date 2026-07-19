@@ -1,24 +1,424 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useState, useRef, useCallback, useEffect } from "react";
+import {
+  Upload, FileType2, Activity, Shield, AlertTriangle, CheckCircle2, XCircle,
+  Play, Pause, Radio, Zap, Dna, Waves, Terminal, ChevronRight,
+} from "lucide-react";
 
-// No head() here: the home route inherits title/description/og/twitter from
-// __root.tsx, and ships no og:image so serve-time hosting can inject the
-// project's social preview (explicit og:image or latest screenshot).
 export const Route = createFileRoute("/")({
-  component: Index,
+  head: () => ({
+    meta: [
+      { title: "Genome Firewall — Clinical Diagnostic Dashboard" },
+      { name: "description", content: "Enterprise-grade clinical diagnostic dashboard for genomic threat detection and antibiotic resistance profiling." },
+      { property: "og:title", content: "Genome Firewall" },
+      { property: "og:description", content: "Clinical diagnostic dashboard for genomic threat detection." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
+    ],
+  }),
+  component: GenomeFirewall,
 });
 
-// IMPORTANT: Replace this placeholder. See ./README.md for routing conventions.
-function Index() {
+type NodeStatus = { name: string; state: "online" | "warn" | "offline"; latency: string };
+
+const NODES: NodeStatus[] = [
+  { name: "OpenAI Parser", state: "online", latency: "42ms" },
+  { name: "Tavily Clinical Search", state: "online", latency: "128ms" },
+  { name: "ElevenLabs Audio Synthesis", state: "online", latency: "89ms" },
+];
+
+const RECOMMENDED = [
+  { name: "Colistin", class: "Polymyxin", efficacy: 94 },
+  { name: "Tigecycline", class: "Glycylcycline", efficacy: 88 },
+  { name: "Fosfomycin", class: "Phosphonic", efficacy: 76 },
+  { name: "Aztreonam + Avibactam", class: "Combination", efficacy: 82 },
+];
+
+const COMPROMISED = [
+  { name: "Meropenem", class: "Carbapenem", resistance: "NDM-1" },
+  { name: "Imipenem", class: "Carbapenem", resistance: "NDM-1" },
+  { name: "Ertapenem", class: "Carbapenem", resistance: "NDM-1" },
+  { name: "Ceftazidime", class: "Cephalosporin", resistance: "CTX-M-15" },
+  { name: "Ciprofloxacin", class: "Fluoroquinolone", resistance: "gyrA mut." },
+];
+
+function GenomeFirewall() {
+  const [file, setFile] = useState<File | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [results, setResults] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const onDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const f = e.dataTransfer.files?.[0];
+    if (f) setFile(f);
+  }, []);
+
+  const onSelect = (f: File | null) => { if (f) setFile(f); };
+
+  const scan = () => {
+    if (!file) return;
+    setScanning(true);
+    setResults(false);
+    setTimeout(() => { setScanning(false); setResults(true); }, 2600);
+  };
+
   return (
-    <div
-      className="flex min-h-screen items-center justify-center"
-      style={{ backgroundColor: "#fcfbf8" }}
-    >
-      <img
-        data-lovable-blank-page-placeholder="REMOVE_THIS"
-        src="https://cdn.gpteng.co/blank-app-v1.svg"
-        alt="Your app will live here!"
-      />
+    <div className="min-h-screen">
+      {/* Top bar */}
+      <header className="border-b border-border/50 backdrop-blur-xl bg-background/40 sticky top-0 z-40">
+        <div className="max-w-[1600px] mx-auto px-6 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="relative">
+              <div className="w-9 h-9 rounded-lg glass-panel flex items-center justify-center neon-border">
+                <Dna className="w-5 h-5 neon-text" />
+              </div>
+            </div>
+            <div>
+              <h1 className="text-sm font-semibold tracking-widest uppercase">Genome<span className="neon-text">Firewall</span></h1>
+              <p className="text-[10px] text-muted-foreground tracking-wider font-mono">v4.2.1 · SESSION #A7F3-9B2C</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-4 text-xs font-mono">
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Radio className="w-3.5 h-3.5 neon-text" />
+              <span>SECURE CHANNEL</span>
+            </div>
+            <div className="h-4 w-px bg-border" />
+            <div className="text-muted-foreground">DR. E. NAKAMURA · <span className="text-foreground">L4</span></div>
+          </div>
+        </div>
+      </header>
+
+      <div className="max-w-[1600px] mx-auto px-6 py-6 grid grid-cols-12 gap-6">
+        {/* Sidebar */}
+        <aside className="col-span-12 lg:col-span-3 space-y-4">
+          <div className="glass-panel p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xs font-semibold tracking-widest text-muted-foreground uppercase">Telemetry</h2>
+              <Activity className="w-3.5 h-3.5 neon-text" />
+            </div>
+            <div className="space-y-3">
+              {NODES.map((n) => (
+                <div key={n.name} className="flex items-center justify-between group">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="relative flex items-center justify-center w-2.5 h-2.5">
+                      <span className="absolute inline-flex h-full w-full rounded-full bg-success opacity-60 animate-ping" />
+                      <span className="relative rounded-full h-2 w-2 bg-success" />
+                    </span>
+                    <span className="text-xs font-medium truncate">{n.name}</span>
+                  </div>
+                  <span className="text-[10px] font-mono text-muted-foreground">{n.latency}</span>
+                </div>
+              ))}
+            </div>
+            <div className="mt-5 pt-4 border-t border-border/50">
+              <div className="flex justify-between text-[10px] font-mono text-muted-foreground mb-2">
+                <span>UPTIME</span><span className="text-foreground">99.982%</span>
+              </div>
+              <div className="h-1 bg-input rounded-full overflow-hidden">
+                <div className="h-full w-[99%] bg-gradient-to-r from-success to-primary" />
+              </div>
+            </div>
+          </div>
+
+          <div className="glass-panel p-5">
+            <h2 className="text-xs font-semibold tracking-widest text-muted-foreground uppercase mb-3">Recent Scans</h2>
+            <ul className="space-y-2 text-xs font-mono">
+              {[
+                { id: "K.pneu-8821", state: "critical" },
+                { id: "E.coli-8820", state: "clear" },
+                { id: "S.aureus-8819", state: "warn" },
+                { id: "P.aeru-8818", state: "clear" },
+              ].map((s) => (
+                <li key={s.id} className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-muted/40 transition-colors cursor-pointer">
+                  <span className="text-muted-foreground">{s.id}</span>
+                  <span className={
+                    s.state === "critical" ? "text-destructive" :
+                    s.state === "warn" ? "text-warning" : "text-success"
+                  }>{s.state.toUpperCase()}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="glass-panel p-5">
+            <h2 className="text-xs font-semibold tracking-widest text-muted-foreground uppercase mb-3">System Load</h2>
+            <div className="space-y-3">
+              {[["GPU Cluster", 68], ["Memory", 42], ["I/O Throughput", 81]].map(([label, val]) => (
+                <div key={label as string}>
+                  <div className="flex justify-between text-[10px] font-mono mb-1">
+                    <span className="text-muted-foreground">{label}</span>
+                    <span>{val}%</span>
+                  </div>
+                  <div className="h-1 bg-input rounded-full overflow-hidden">
+                    <div className="h-full bg-primary" style={{ width: `${val}%` }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </aside>
+
+        {/* Main */}
+        <main className="col-span-12 lg:col-span-9 space-y-6">
+          {/* Ingest */}
+          <section
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={onDrop}
+            className={`relative glass-panel p-8 transition-all duration-300 overflow-hidden ${
+              dragOver ? "neon-border scale-[1.005]" : ""
+            }`}
+          >
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <div className="flex items-center gap-2 text-xs font-mono text-muted-foreground tracking-widest uppercase mb-1">
+                  <Terminal className="w-3 h-3" /> Ingest Zone
+                </div>
+                <h2 className="text-2xl font-semibold tracking-tight">Sequence Intake Protocol</h2>
+              </div>
+              <div className="flex items-center gap-2 text-xs font-mono text-success">
+                <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" /> READY
+              </div>
+            </div>
+
+            <label
+              htmlFor="fasta"
+              className={`relative flex flex-col items-center justify-center py-14 px-6 rounded-xl border-2 border-dashed cursor-pointer transition-all duration-300 group ${
+                dragOver
+                  ? "border-neon bg-neon/5 animate-glow-pulse"
+                  : "border-border hover:border-neon/60 hover:bg-neon/[0.02]"
+              }`}
+            >
+              {dragOver && (
+                <div className="absolute inset-x-0 top-0 h-full overflow-hidden pointer-events-none">
+                  <div className="h-px bg-gradient-to-r from-transparent via-neon to-transparent animate-scan-line" />
+                </div>
+              )}
+              <div className={`relative w-16 h-16 rounded-2xl flex items-center justify-center mb-4 transition-all ${
+                dragOver ? "bg-neon/20 neon-border" : "bg-muted/50 group-hover:bg-neon/10"
+              }`}>
+                <Upload className={`w-7 h-7 transition-colors ${dragOver ? "neon-text" : "text-muted-foreground group-hover:text-primary"}`} />
+              </div>
+              <p className="text-base font-medium mb-1">
+                {file ? (
+                  <span className="flex items-center gap-2">
+                    <FileType2 className="w-4 h-4 neon-text" />
+                    <span className="font-mono">{file.name}</span>
+                  </span>
+                ) : (
+                  <>Drop <span className="neon-text font-mono">.fasta</span> sequence or click to browse</>
+                )}
+              </p>
+              <p className="text-xs text-muted-foreground font-mono">
+                {file ? `${(file.size / 1024).toFixed(1)} KB · Ready to scan` : "Max 512MB · FASTA / FASTQ / GenBank formats accepted"}
+              </p>
+              <input
+                id="fasta"
+                ref={inputRef}
+                type="file"
+                accept=".fasta,.fastq,.fa,.gb"
+                className="hidden"
+                onChange={(e) => onSelect(e.target.files?.[0] ?? null)}
+              />
+            </label>
+
+            <div className="mt-6 flex flex-wrap items-center justify-between gap-4">
+              <div className="flex items-center gap-4 text-xs font-mono text-muted-foreground">
+                <span className="flex items-center gap-1.5"><Shield className="w-3.5 h-3.5 neon-text" /> AES-256 ENCRYPTED</span>
+                <span className="flex items-center gap-1.5"><Zap className="w-3.5 h-3.5 neon-text" /> ~2.4s AVG SCAN</span>
+              </div>
+              <button
+                onClick={scan}
+                disabled={!file || scanning}
+                className="group relative inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-neon text-primary-foreground font-semibold text-sm tracking-wider uppercase transition-all disabled:opacity-40 disabled:cursor-not-allowed hover:shadow-[0_0_30px_var(--neon-glow)] active:scale-95"
+              >
+                {scanning ? (
+                  <>
+                    <span className="w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
+                    Analyzing…
+                  </>
+                ) : (
+                  <>
+                    Scan Sequence <ChevronRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+                  </>
+                )}
+              </button>
+            </div>
+          </section>
+
+          {/* Scanning skeletons */}
+          {scanning && (
+            <section className="glass-panel p-6 space-y-4">
+              <div className="flex items-center gap-3 text-xs font-mono text-muted-foreground tracking-widest uppercase">
+                <span className="w-2 h-2 rounded-full bg-neon animate-pulse" />
+                DECODING GENOMIC MARKERS…
+              </div>
+              <div className="skeleton h-8 w-2/3" />
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <div className="skeleton h-5 w-1/2" />
+                  <div className="skeleton h-12" />
+                  <div className="skeleton h-12" />
+                  <div className="skeleton h-12" />
+                </div>
+                <div className="space-y-2">
+                  <div className="skeleton h-5 w-1/2" />
+                  <div className="skeleton h-12" />
+                  <div className="skeleton h-12" />
+                  <div className="skeleton h-12" />
+                </div>
+              </div>
+            </section>
+          )}
+
+          {/* Results */}
+          {results && !scanning && (
+            <>
+              {/* Threat banner */}
+              <section className="relative overflow-hidden rounded-lg border-2 border-destructive/60 bg-gradient-to-r from-destructive/25 via-destructive/10 to-warning/20 p-5 animate-in fade-in slide-in-from-top-4 duration-500">
+                <div className="absolute inset-y-0 left-0 w-1 bg-destructive" />
+                <div className="flex items-start gap-4">
+                  <div className="w-11 h-11 rounded-full bg-destructive/30 border border-destructive flex items-center justify-center flex-shrink-0 animate-pulse">
+                    <AlertTriangle className="w-6 h-6 text-destructive-foreground" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 text-[10px] font-mono tracking-[0.2em] text-destructive-foreground/80 mb-1">
+                      THREAT LEVEL · CRITICAL · ISO/IEC 27035
+                    </div>
+                    <h3 className="text-xl font-bold tracking-tight">
+                      CRITICAL: NDM-1 Detected
+                    </h3>
+                    <p className="text-sm text-foreground/80 mt-1 max-w-2xl">
+                      New Delhi Metallo-β-lactamase confers pan-carbapenem resistance in <span className="font-mono">Klebsiella pneumoniae</span>. Immediate isolation and contact-precaution protocols advised.
+                    </p>
+                  </div>
+                  <div className="text-right text-xs font-mono flex-shrink-0">
+                    <div className="text-muted-foreground">CONFIDENCE</div>
+                    <div className="text-2xl font-bold text-destructive-foreground">99.4%</div>
+                  </div>
+                </div>
+              </section>
+
+              {/* Audio player */}
+              <section className="glass-panel p-5 flex items-center gap-5 animate-in fade-in slide-in-from-top-4 duration-500 delay-100">
+                <button
+                  onClick={() => setPlaying((p) => !p)}
+                  className="relative w-14 h-14 rounded-full bg-neon text-primary-foreground flex items-center justify-center flex-shrink-0 hover:shadow-[0_0_30px_var(--neon-glow)] transition-all active:scale-95"
+                >
+                  {playing ? <Pause className="w-6 h-6" fill="currentColor" /> : <Play className="w-6 h-6 ml-0.5" fill="currentColor" />}
+                </button>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 text-[10px] font-mono text-muted-foreground tracking-widest uppercase mb-1">
+                    <Waves className="w-3 h-3" /> Clinical Brief · ElevenLabs
+                  </div>
+                  <div className="text-sm font-semibold mb-2">Play Clinical Brief — Case #A7F3-9B2C</div>
+                  <Waveform playing={playing} />
+                </div>
+                <div className="text-right font-mono text-xs text-muted-foreground flex-shrink-0">
+                  <div>02:14 / 04:38</div>
+                  <div className="text-neon mt-1">HIGH FIDELITY</div>
+                </div>
+              </section>
+
+              {/* Results matrix */}
+              <section className="glass-panel p-6 animate-in fade-in slide-in-from-top-4 duration-500 delay-200">
+                <div className="flex items-center justify-between mb-5">
+                  <div>
+                    <div className="text-xs font-mono text-muted-foreground tracking-widest uppercase mb-1">Results Matrix</div>
+                    <h3 className="text-xl font-semibold tracking-tight">Antibiotic Susceptibility Profile</h3>
+                  </div>
+                  <div className="text-xs font-mono text-muted-foreground">
+                    9 compounds analyzed · <span className="text-foreground">EUCAST v14.0</span>
+                  </div>
+                </div>
+
+                <div className="grid md:grid-cols-2 gap-6">
+                  {/* Recommended */}
+                  <div>
+                    <div className="flex items-center gap-2 mb-3 pb-2 border-b border-success/30">
+                      <CheckCircle2 className="w-4 h-4 text-success" />
+                      <h4 className="text-sm font-semibold tracking-widest uppercase text-success">Recommended</h4>
+                      <span className="ml-auto text-xs font-mono text-muted-foreground">{RECOMMENDED.length}</span>
+                    </div>
+                    <ul className="space-y-2">
+                      {RECOMMENDED.map((a) => (
+                        <li key={a.name} className="flex items-center justify-between p-3 rounded-lg bg-success/[0.06] border border-success/20 hover:bg-success/[0.1] transition-colors">
+                          <div className="min-w-0">
+                            <div className="font-medium text-sm">{a.name}</div>
+                            <div className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">{a.class}</div>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className="text-xs font-mono text-success">{a.efficacy}%</span>
+                            <span className="px-2.5 py-1 rounded-full bg-success/20 text-success text-[10px] font-semibold tracking-widest uppercase border border-success/40">
+                              Susceptible
+                            </span>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  {/* Compromised */}
+                  <div>
+                    <div className="flex items-center gap-2 mb-3 pb-2 border-b border-destructive/30">
+                      <XCircle className="w-4 h-4 text-destructive" />
+                      <h4 className="text-sm font-semibold tracking-widest uppercase text-destructive">Compromised</h4>
+                      <span className="ml-auto text-xs font-mono text-muted-foreground">{COMPROMISED.length}</span>
+                    </div>
+                    <ul className="space-y-2">
+                      {COMPROMISED.map((a) => (
+                        <li key={a.name} className="flex items-center justify-between p-3 rounded-lg bg-destructive/[0.08] border border-destructive/25 hover:bg-destructive/[0.12] transition-colors">
+                          <div className="min-w-0">
+                            <div className="font-medium text-sm">{a.name}</div>
+                            <div className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">{a.class}</div>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className="text-[10px] font-mono text-destructive">{a.resistance}</span>
+                            <span className="px-2.5 py-1 rounded-full bg-destructive/25 text-destructive text-[10px] font-semibold tracking-widest uppercase border border-destructive/50">
+                              Resistant
+                            </span>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              </section>
+            </>
+          )}
+        </main>
+      </div>
+    </div>
+  );
+}
+
+function Waveform({ playing }: { playing: boolean }) {
+  const bars = 48;
+  const [seed, setSeed] = useState(0);
+  useEffect(() => {
+    if (!playing) return;
+    const id = setInterval(() => setSeed((s) => s + 1), 120);
+    return () => clearInterval(id);
+  }, [playing]);
+  return (
+    <div className="flex items-center gap-[3px] h-8">
+      {Array.from({ length: bars }).map((_, i) => {
+        const base = 0.25 + Math.abs(Math.sin((i + seed) * 0.6)) * 0.75;
+        const h = playing ? base : 0.2 + Math.abs(Math.sin(i * 0.9)) * 0.3;
+        const active = i < (seed % bars) && playing;
+        return (
+          <span
+            key={i}
+            className={`w-[3px] rounded-full transition-all duration-150 ${active ? "bg-neon" : "bg-muted-foreground/40"}`}
+            style={{ height: `${h * 100}%`, boxShadow: active ? "0 0 6px var(--neon-glow)" : undefined }}
+          />
+        );
+      })}
     </div>
   );
 }
