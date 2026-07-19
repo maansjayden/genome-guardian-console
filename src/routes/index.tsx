@@ -460,10 +460,16 @@ function GenomeFirewall() {
               <section className="glass-panel p-5 flex items-center gap-5 animate-in fade-in slide-in-from-top-4 duration-500 delay-100">
                 <button
                   onClick={togglePlay}
-                  disabled={!scanData.audioUrl}
-                  className="relative w-14 h-14 rounded-full bg-neon text-primary-foreground flex items-center justify-center flex-shrink-0 hover:shadow-[0_0_30px_var(--neon-glow)] transition-all active:scale-95 disabled:opacity-40"
+                  disabled={!scanData.audioUrl || !audioReady}
+                  className="relative w-14 h-14 rounded-full bg-neon text-primary-foreground flex items-center justify-center flex-shrink-0 hover:shadow-[0_0_30px_var(--neon-glow)] transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  {playing ? <Pause className="w-6 h-6" fill="currentColor" /> : <Play className="w-6 h-6 ml-0.5" fill="currentColor" />}
+                  {scanData.audioUrl && !audioReady ? (
+                    <span className="w-5 h-5 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
+                  ) : playing ? (
+                    <Pause className="w-6 h-6" fill="currentColor" />
+                  ) : (
+                    <Play className="w-6 h-6 ml-0.5" fill="currentColor" />
+                  )}
                 </button>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 text-[10px] font-mono text-muted-foreground tracking-widest uppercase mb-1">
@@ -473,9 +479,18 @@ function GenomeFirewall() {
                   <Waveform playing={playing} />
                 </div>
                 <div className="text-right font-mono text-xs text-muted-foreground flex-shrink-0">
-                  <div>{scanData.audioUrl ? (playing ? "STREAMING" : "READY") : "NO AUDIO"}</div>
+                  <div>
+                    {!scanData.audioUrl
+                      ? "NO AUDIO"
+                      : !audioReady
+                      ? "LOADING…"
+                      : playing
+                      ? "STREAMING"
+                      : "READY"}
+                  </div>
                   <div className="text-neon mt-1">HIGH FIDELITY</div>
                 </div>
+
               </section>
 
               {/* Results matrix */}
