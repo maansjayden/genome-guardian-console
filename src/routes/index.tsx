@@ -232,19 +232,36 @@ function GenomeFirewall() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    try {
-      const raw = window.localStorage.getItem(RECENT_SCANS_KEY);
-      const parsed = raw ? JSON.parse(raw) : [];
-      setRecentScans(Array.isArray(parsed) ? parsed : []);
-    } catch {}
-    setHistoryLoaded(true);
+    let cancelled = false;
+    (async () => {
+      try {
+        const fromDb = await readRecentScansFromDb();
+        if (!cancelled && fromDb) setRecentScans(fromDb);
+        if (!cancelled && !fromDb) {
+          const raw = window.localStorage.getItem(RECENT_SCANS_KEY);
+          const parsed = raw ? JSON.parse(raw) : [];
+          setRecentScans(Array.isArray(parsed) ? parsed : []);
+        }
+      } catch {
+        try {
+          const raw = window.localStorage.getItem(RECENT_SCANS_KEY);
+          const parsed = raw ? JSON.parse(raw) : [];
+          if (!cancelled) setRecentScans(Array.isArray(parsed) ? parsed : []);
+        } catch {}
+      } finally {
+        if (!cancelled) setHistoryLoaded(true);
+      }
+    })();
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
     if (typeof window === "undefined" || !historyLoaded) return;
+    const storageSafeScans = serializeRecentScansForStorage(recentScans);
     try {
-      window.localStorage.setItem(RECENT_SCANS_KEY, JSON.stringify(recentScans));
+      window.localStorage.setItem(RECENT_SCANS_KEY, JSON.stringify(storageSafeScans));
     } catch {}
+    writeRecentScansToDb(recentScans).catch(() => {});
   }, [recentScans, historyLoaded]);
 
   const stopAudio = () => {
@@ -271,16 +288,26 @@ function GenomeFirewall() {
     if (inputRef.current) inputRef.current.value = "";
   };
 
-  const attachAudio = (data: ScanData) => {
+  const attachAudio = async (data: ScanData) => {
     const payload = data.audioPayload ?? data.audioUrl;
     if (!payload || typeof window === "undefined") return;
+    setAudioReady(false);
     if (revokeAudioUrlRef.current) {
       revokeAudioUrlRef.current();
       revokeAudioUrlRef.current = null;
     }
-    const playback = audioPayloadToPlaybackUrl(payload);
+    const playback = await audioPayloadToPlaybackUrl(payload);
     revokeAudioUrlRef.current = playback.revoke ?? null;
     setAudioSrc(playback.url);
+    window.setTimeout(() => {
+      const a = audioRef.current;
+      if (!a || a.src !== playback.url) return;
+      a.muted = false;
+      a.volume = 1.0;
+      waitForAudioReady(a)
+        .then(() => setAudioReady(true))
+        .catch((err) => setError(`Audio failed to load: ${err?.message ?? err}`));
+    }, 0);
   };
 
   const openHistory = (entry: { data: ScanData }) => {
@@ -291,7 +318,7 @@ function GenomeFirewall() {
     setAudioReady(false);
     setFile(null);
     setScanData(entry.data);
-    attachAudio(entry.data);
+    attachAudio(entry.data).catch((err) => setError(`Audio failed to load: ${err?.message ?? err}`));
   };
 
 
@@ -332,7 +359,7 @@ function GenomeFirewall() {
           ? "warn"
           : "clear";
       setRecentScans((prev) => [{ id: file.name, state, data, createdAt: Date.now() }, ...prev].slice(0, 8));
-      attachAudio(data);
+      attachAudio(data).catch((err) => setError(`Audio failed to load: ${err?.message ?? err}`));
     } catch (e: any) {
       setError(e?.message ?? "Scan failed");
     } finally {
