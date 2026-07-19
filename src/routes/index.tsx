@@ -129,20 +129,54 @@ function GenomeFirewall() {
   const [error, setError] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const [audioReady, setAudioReady] = useState(false);
-  const [recentScans, setRecentScans] = useState<{ id: string; state: string }[]>([]);
+  const [recentScans, setRecentScans] = useState<{ id: string; state: string; data: ScanData }[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  const resetScan = () => {
-    audioRef.current?.pause();
+  const stopAudio = () => {
+    const a = audioRef.current;
+    if (a) {
+      try { a.pause(); } catch {}
+      a.src = "";
+    }
     audioRef.current = null;
+  };
+
+  const resetScan = () => {
+    stopAudio();
     setScanData(null);
     setFile(null);
     setError(null);
+    setScanning(false);
     setPlaying(false);
     setAudioReady(false);
     setDragOver(false);
     if (inputRef.current) inputRef.current.value = "";
+  };
+
+  const attachAudio = (data: ScanData) => {
+    if (!data.audioUrl) return;
+    const audio = new Audio(data.audioUrl);
+    audio.preload = "auto";
+    audioRef.current = audio;
+    audio.addEventListener("canplaythrough", () => setAudioReady(true), { once: true });
+    audio.addEventListener("loadeddata", () => setAudioReady(true), { once: true });
+    audio.addEventListener("play", () => setPlaying(true));
+    audio.addEventListener("pause", () => setPlaying(false));
+    audio.addEventListener("ended", () => setPlaying(false));
+    audio.addEventListener("error", () => setError("Audio failed to load"));
+    audio.load();
+  };
+
+  const openHistory = (entry: { data: ScanData }) => {
+    stopAudio();
+    setError(null);
+    setScanning(false);
+    setPlaying(false);
+    setAudioReady(false);
+    setFile(null);
+    setScanData(entry.data);
+    attachAudio(entry.data);
   };
 
 
