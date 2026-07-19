@@ -27,14 +27,14 @@ const NODES: NodeStatus[] = [
   { name: "ElevenLabs Audio Synthesis", state: "online", latency: "89ms" },
 ];
 
-const RECOMMENDED = [
+const FALLBACK_RECOMMENDED = [
   { name: "Colistin", class: "Polymyxin", efficacy: 94 },
   { name: "Tigecycline", class: "Glycylcycline", efficacy: 88 },
   { name: "Fosfomycin", class: "Phosphonic", efficacy: 76 },
   { name: "Aztreonam + Avibactam", class: "Combination", efficacy: 82 },
 ];
 
-const COMPROMISED = [
+const FALLBACK_COMPROMISED = [
   { name: "Meropenem", class: "Carbapenem", resistance: "NDM-1" },
   { name: "Imipenem", class: "Carbapenem", resistance: "NDM-1" },
   { name: "Ertapenem", class: "Carbapenem", resistance: "NDM-1" },
@@ -42,13 +42,88 @@ const COMPROMISED = [
   { name: "Ciprofloxacin", class: "Fluoroquinolone", resistance: "gyrA mut." },
 ];
 
+type Recommended = { name: string; class: string; efficacy: number };
+type Compromised = { name: string; class: string; resistance: string };
+type ScanData = {
+  threatLevel: string;
+  title: string;
+  organism?: string;
+  description: string;
+  confidence: string;
+  mutations: string[];
+  recommended: Recommended[];
+  compromised: Compromised[];
+  audioUrl?: string;
+};
+
+function normalizeScan(raw: any): ScanData {
+  const mutations: string[] = Array.isArray(raw?.mutations)
+    ? raw.mutations
+    : raw?.mutation
+    ? [raw.mutation]
+    : raw?.detected_mutations ?? [];
+  const primary = mutations[0] ?? raw?.threat ?? "Unknown Variant";
+  const level = (raw?.threat_level ?? raw?.level ?? "CRITICAL").toString().toUpperCase();
+  const organism = raw?.organism ?? raw?.species;
+  const confidenceNum = raw?.confidence ?? raw?.score;
+  const confidence =
+    typeof confidenceNum === "number"
+      ? confidenceNum <= 1
+        ? `${(confidenceNum * 100).toFixed(1)}%`
+        : `${confidenceNum.toFixed(1)}%`
+      : (confidenceNum ?? "—").toString();
+
+  let audioUrl: string | undefined;
+  if (typeof raw?.audio_url === "string") audioUrl = raw.audio_url;
+  else if (typeof raw?.audio_base64 === "string")
+    audioUrl = `data:audio/mpeg;base64,${raw.audio_base64}`;
+  else if (typeof raw?.audio === "string")
+    audioUrl =
+      raw.audio.startsWith("http") || raw.audio.startsWith("data:")
+        ? raw.audio
+        : `data:audio/mpeg;base64,${raw.audio}`;
+
+  return {
+    threatLevel: level,
+    title: `${level}: ${primary} Detected`,
+    organism,
+    description:
+      raw?.description ??
+      raw?.summary ??
+      (organism
+        ? `${primary} detected in ${organism}. Review susceptibility profile below.`
+        : `${primary} detected. Review susceptibility profile below.`),
+    confidence,
+    mutations: mutations.length ? mutations : [primary],
+    recommended:
+      Array.isArray(raw?.recommended) && raw.recommended.length
+        ? raw.recommended.map((a: any) => ({
+            name: a.name ?? a.drug ?? "Unknown",
+            class: a.class ?? a.category ?? "—",
+            efficacy: Number(a.efficacy ?? a.score ?? 0),
+          }))
+        : FALLBACK_RECOMMENDED,
+    compromised:
+      Array.isArray(raw?.compromised) && raw.compromised.length
+        ? raw.compromised.map((a: any) => ({
+            name: a.name ?? a.drug ?? "Unknown",
+            class: a.class ?? a.category ?? "—",
+            resistance: a.resistance ?? a.mechanism ?? "resistant",
+          }))
+        : FALLBACK_COMPROMISED,
+    audioUrl,
+  };
+}
+
 function GenomeFirewall() {
   const [file, setFile] = useState<File | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [scanning, setScanning] = useState(false);
-  const [results, setResults] = useState(false);
+  const [scanData, setScanData] = useState<ScanData | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -57,14 +132,52 @@ function GenomeFirewall() {
     if (f) setFile(f);
   }, []);
 
-  const onSelect = (f: File | null) => { if (f) setFile(f); };
+  const onSelect = (f: File | null) => {
+    if (f) setFile(f);
+  };
 
-  const scan = () => {
+  const scan = async () => {
     if (!file) return;
     setScanning(true);
-    setResults(false);
-    setTimeout(() => { setScanning(false); setResults(true); }, 2600);
+    setScanData(null);
+    setError(null);
+    try {
+      const sequence = await file.text();
+      const res = await fetch("http://127.0.0.1:8000/api/scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sequence }),
+      });
+      if (!res.ok) throw new Error(`Backend error ${res.status}: ${await res.text()}`);
+      const data = normalizeScan(await res.json());
+      setScanData(data);
+      if (data.audioUrl) {
+        audioRef.current?.pause();
+        const audio = new Audio(data.audioUrl);
+        audioRef.current = audio;
+        audio.addEventListener("play", () => setPlaying(true));
+        audio.addEventListener("pause", () => setPlaying(false));
+        audio.addEventListener("ended", () => setPlaying(false));
+        audio.play().catch(() => {});
+      }
+    } catch (e: any) {
+      setError(e?.message ?? "Scan failed");
+    } finally {
+      setScanning(false);
+    }
   };
+
+  const togglePlay = () => {
+    const a = audioRef.current;
+    if (!a) {
+      setPlaying((p) => !p);
+      return;
+    }
+    if (a.paused) a.play().catch(() => {});
+    else a.pause();
+  };
+
+  const results = !!scanData;
 
   return (
     <div className="min-h-screen">
