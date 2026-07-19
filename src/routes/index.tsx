@@ -469,7 +469,7 @@ function GenomeFirewall() {
                     <div className="text-muted-foreground">CONFIDENCE</div>
                     <div className="text-2xl font-bold text-destructive-foreground">{scanData.confidence}</div>
                     <button
-                      onClick={() => { audioRef.current?.pause(); audioRef.current = null; setScanData(null); setPlaying(false); setAudioReady(false); }}
+                      onClick={resetScan}
                       className="mt-3 text-[10px] tracking-widest uppercase text-muted-foreground hover:text-foreground transition-colors"
                     >
                       ← New Scan
