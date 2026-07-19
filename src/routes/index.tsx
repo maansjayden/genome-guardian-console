@@ -167,8 +167,9 @@ function GenomeFirewall() {
   const stopAudio = () => {
     const a = audioRef.current;
     if (a) {
+      (a as any).__disposed = true;
       try { a.pause(); } catch {}
-      a.src = "";
+      try { a.removeAttribute("src"); a.load(); } catch {}
     }
     audioRef.current = null;
     if (revokeAudioUrlRef.current) {
@@ -206,7 +207,7 @@ function GenomeFirewall() {
     audio.addEventListener("play", () => setPlaying(true));
     audio.addEventListener("pause", () => setPlaying(false));
     audio.addEventListener("ended", () => setPlaying(false));
-    audio.addEventListener("error", () => setError("Audio failed to load"));
+    audio.addEventListener("error", () => { if (!(audio as any).__disposed) setError("Audio failed to load"); });
     audio.load();
     // Blob URLs are local browser files — enable playback immediately as a fallback.
     if (playback.url.startsWith("blob:")) {
