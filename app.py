@@ -27,6 +27,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.get("/")
+async def root():
+    return {
+        "status": "online",
+        "service": "SyntheGuard Genome Scanner API",
+        "message": "Welcome to the SyntheGuard API. Use POST /api/scan or POST /scan to analyze sequences."
+    }
+
 class SequenceRequest(BaseModel):
     sequence: str
 
