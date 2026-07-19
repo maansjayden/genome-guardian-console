@@ -279,6 +279,7 @@ function GenomeFirewall() {
         {/* Main */}
         <main className="col-span-12 lg:col-span-9 space-y-6">
           {/* Ingest */}
+          {!results && (
           <section
             onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
             onDragLeave={() => setDragOver(false)}
@@ -334,11 +335,17 @@ function GenomeFirewall() {
                 id="fasta"
                 ref={inputRef}
                 type="file"
-                accept=".fasta,.fastq,.fa,.gb"
+                accept=".fasta,.fastq,.fa,.gb,.txt"
                 className="hidden"
                 onChange={(e) => onSelect(e.target.files?.[0] ?? null)}
               />
             </label>
+
+            {error && (
+              <div className="mt-4 p-3 rounded-lg border border-destructive/40 bg-destructive/10 text-xs font-mono text-destructive">
+                {error}
+              </div>
+            )}
 
             <div className="mt-6 flex flex-wrap items-center justify-between gap-4">
               <div className="flex items-center gap-4 text-xs font-mono text-muted-foreground">
@@ -363,6 +370,7 @@ function GenomeFirewall() {
               </button>
             </div>
           </section>
+          )}
 
           {/* Scanning skeletons */}
           {scanning && (
