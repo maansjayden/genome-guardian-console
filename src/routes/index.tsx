@@ -318,7 +318,6 @@ function GenomeFirewall() {
     audioBlobRef.current = playback.blob ?? null;
     audioBufferRef.current = null;
     setAudioSrc(playback.url);
-    if (playback.blob) setAudioReady(true);
     window.setTimeout(() => {
       const a = audioRef.current;
       if (!a || a.src !== playback.url) return;
@@ -326,7 +325,7 @@ function GenomeFirewall() {
       a.volume = 1.0;
       waitForAudioReady(a)
         .then(() => setAudioReady(true))
-        .catch((err) => { if (!playback.blob) setError(`Audio failed to load: ${err?.message ?? err}`); });
+        .catch((err) => setError(`Audio failed to load: ${err?.message ?? err}`));
     }, 0);
   };
 
@@ -408,6 +407,26 @@ function GenomeFirewall() {
 
     setError(null);
 
+    if (a && audioSrc) {
+      try {
+        if ((a.currentSrc || a.src) !== audioSrc) {
+          a.src = audioSrc;
+          a.load();
+        }
+        a.muted = false;
+        a.volume = 1.0;
+        await waitForAudioReady(a, 6000);
+        await a.play();
+        setPlaying(true);
+        return;
+      } catch (err: any) {
+        if (!audioBlobRef.current) {
+          setError(`Playback failed: ${err?.message ?? err}`);
+          return;
+        }
+      }
+    }
+
     if (audioBlobRef.current) {
       try {
         const ctx = audioContextRef.current ?? getAudioContext();
@@ -429,15 +448,6 @@ function GenomeFirewall() {
       } catch (err: any) {
         setError(`Audio decode failed: ${err?.message ?? err}`);
       }
-    }
-
-    if (!a) return;
-    a.muted = false;
-    a.volume = 1.0;
-    try {
-      await a.play();
-    } catch (err: any) {
-      setError(`Playback blocked: ${err?.message ?? err}`);
     }
   };
 
