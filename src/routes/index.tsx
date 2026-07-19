@@ -10,8 +10,8 @@ export const Route = createFileRoute("/")({
     meta: [
       { title: "Genome Firewall — Clinical Diagnostic Dashboard" },
       { name: "description", content: "Enterprise-grade clinical diagnostic dashboard for genomic threat detection and antibiotic resistance profiling." },
-      { property: "og:title", content: "Genome Firewall" },
-      { property: "og:description", content: "Clinical diagnostic dashboard for genomic threat detection." },
+      { property: "og:title", content: "Genome Firewall — Clinical Diagnostic Dashboard" },
+      { property: "og:description", content: "Enterprise-grade clinical diagnostic dashboard for genomic threat detection and antibiotic resistance profiling." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],

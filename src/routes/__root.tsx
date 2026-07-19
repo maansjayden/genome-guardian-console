@@ -77,14 +77,18 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
+      { title: "Genome Firewall — Clinical Diagnostic Dashboard" },
+      { name: "description", content: "Enterprise-grade clinical diagnostic dashboard for genomic threat detection and antibiotic resistance profiling." },
       { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { property: "og:title", content: "Genome Firewall — Clinical Diagnostic Dashboard" },
+      { property: "og:description", content: "Enterprise-grade clinical diagnostic dashboard for genomic threat detection and antibiotic resistance profiling." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
       { name: "twitter:site", content: "@Lovable" },
+      { name: "twitter:title", content: "Genome Firewall — Clinical Diagnostic Dashboard" },
+      { name: "twitter:description", content: "Enterprise-grade clinical diagnostic dashboard for genomic threat detection and antibiotic resistance profiling." },
+      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/e68feefd-e5a0-4e20-8a92-793abe6b4517/id-preview-33d8f22c--ad30fc79-fb29-4e3a-a662-8447389937d5.lovable.app-1784460269628.png" },
+      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/e68feefd-e5a0-4e20-8a92-793abe6b4517/id-preview-33d8f22c--ad30fc79-fb29-4e3a-a662-8447389937d5.lovable.app-1784460269628.png" },
     ],
     links: [
       {
