@@ -207,7 +207,7 @@ function GenomeFirewall() {
     audio.addEventListener("play", () => setPlaying(true));
     audio.addEventListener("pause", () => setPlaying(false));
     audio.addEventListener("ended", () => setPlaying(false));
-    audio.addEventListener("error", () => setError("Audio failed to load"));
+    audio.addEventListener("error", () => { if (!(audio as any).__disposed) setError("Audio failed to load"); });
     audio.load();
     // Blob URLs are local browser files — enable playback immediately as a fallback.
     if (playback.url.startsWith("blob:")) {
