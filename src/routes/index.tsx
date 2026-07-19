@@ -129,8 +129,21 @@ function GenomeFirewall() {
   const [error, setError] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const [audioReady, setAudioReady] = useState(false);
+  const [recentScans, setRecentScans] = useState<{ id: string; state: string }[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const resetScan = () => {
+    audioRef.current?.pause();
+    audioRef.current = null;
+    setScanData(null);
+    setFile(null);
+    setError(null);
+    setPlaying(false);
+    setAudioReady(false);
+    setDragOver(false);
+    if (inputRef.current) inputRef.current.value = "";
+  };
 
 
   const onDrop = useCallback((e: React.DragEvent) => {
@@ -162,6 +175,14 @@ function GenomeFirewall() {
       if (!res.ok) throw new Error(`Backend error ${res.status}: ${await res.text()}`);
       const data = normalizeScan(await res.json());
       setScanData(data);
+      const level = data.threatLevel.toUpperCase();
+      const state =
+        level === "CRITICAL" || level === "HIGH"
+          ? "critical"
+          : level === "WARN" || level === "WARNING" || level === "MODERATE" || level === "MEDIUM"
+          ? "warn"
+          : "clear";
+      setRecentScans((prev) => [{ id: file.name, state }, ...prev].slice(0, 8));
       if (data.audioUrl) {
         const audio = new Audio(data.audioUrl);
         audio.preload = "auto";
@@ -252,22 +273,23 @@ function GenomeFirewall() {
 
           <div className="glass-panel p-5">
             <h2 className="text-xs font-semibold tracking-widest text-muted-foreground uppercase mb-3">Recent Scans</h2>
-            <ul className="space-y-2 text-xs font-mono">
-              {[
-                { id: "K.pneu-8821", state: "critical" },
-                { id: "E.coli-8820", state: "clear" },
-                { id: "S.aureus-8819", state: "warn" },
-                { id: "P.aeru-8818", state: "clear" },
-              ].map((s) => (
-                <li key={s.id} className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-muted/40 transition-colors cursor-pointer">
-                  <span className="text-muted-foreground">{s.id}</span>
-                  <span className={
-                    s.state === "critical" ? "text-destructive" :
-                    s.state === "warn" ? "text-warning" : "text-success"
-                  }>{s.state.toUpperCase()}</span>
-                </li>
-              ))}
-            </ul>
+            {recentScans.length === 0 ? (
+              <p className="text-[11px] font-mono text-muted-foreground/70 italic py-2">
+                No scans yet. Ingest a sequence to begin.
+              </p>
+            ) : (
+              <ul className="space-y-2 text-xs font-mono">
+                {recentScans.map((s, i) => (
+                  <li key={`${s.id}-${i}`} className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-muted/40 transition-colors cursor-pointer gap-2">
+                    <span className="text-muted-foreground truncate">{s.id}</span>
+                    <span className={
+                      s.state === "critical" ? "text-destructive" :
+                      s.state === "warn" ? "text-warning" : "text-success"
+                    }>{s.state.toUpperCase()}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
 
           <div className="glass-panel p-5">
@@ -447,7 +469,7 @@ function GenomeFirewall() {
                     <div className="text-muted-foreground">CONFIDENCE</div>
                     <div className="text-2xl font-bold text-destructive-foreground">{scanData.confidence}</div>
                     <button
-                      onClick={() => { audioRef.current?.pause(); audioRef.current = null; setScanData(null); setPlaying(false); setAudioReady(false); }}
+                      onClick={resetScan}
                       className="mt-3 text-[10px] tracking-widest uppercase text-muted-foreground hover:text-foreground transition-colors"
                     >
                       ← New Scan
