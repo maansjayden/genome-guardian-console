@@ -197,8 +197,7 @@ function GenomeFirewall() {
     setScanData(null);
     setError(null);
     setAudioReady(false);
-    audioRef.current?.pause();
-    audioRef.current = null;
+    stopAudio();
     try {
       const sequence = await file.text();
       const res = await fetch("http://127.0.0.1:8000/api/scan", {
@@ -216,19 +215,8 @@ function GenomeFirewall() {
           : level === "WARN" || level === "WARNING" || level === "MODERATE" || level === "MEDIUM"
           ? "warn"
           : "clear";
-      setRecentScans((prev) => [{ id: file.name, state }, ...prev].slice(0, 8));
-      if (data.audioUrl) {
-        const audio = new Audio(data.audioUrl);
-        audio.preload = "auto";
-        audioRef.current = audio;
-        audio.addEventListener("canplaythrough", () => setAudioReady(true), { once: true });
-        audio.addEventListener("loadeddata", () => setAudioReady(true), { once: true });
-        audio.addEventListener("play", () => setPlaying(true));
-        audio.addEventListener("pause", () => setPlaying(false));
-        audio.addEventListener("ended", () => setPlaying(false));
-        audio.addEventListener("error", () => setError("Audio failed to load"));
-        audio.load();
-      }
+      setRecentScans((prev) => [{ id: file.name, state, data }, ...prev].slice(0, 8));
+      attachAudio(data);
     } catch (e: any) {
       setError(e?.message ?? "Scan failed");
     } finally {
