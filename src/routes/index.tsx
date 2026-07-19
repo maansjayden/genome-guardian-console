@@ -143,6 +143,7 @@ function GenomeFirewall() {
   const [audioReady, setAudioReady] = useState(false);
   const [recentScans, setRecentScans] = useState<RecentScan[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [audioSrc, setAudioSrc] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const revokeAudioUrlRef = useRef<(() => void) | null>(null);
@@ -167,11 +168,9 @@ function GenomeFirewall() {
   const stopAudio = () => {
     const a = audioRef.current;
     if (a) {
-      (a as any).__disposed = true;
       try { a.pause(); } catch {}
-      try { a.removeAttribute("src"); a.load(); } catch {}
     }
-    audioRef.current = null;
+    setAudioSrc(null);
     if (revokeAudioUrlRef.current) {
       revokeAudioUrlRef.current();
       revokeAudioUrlRef.current = null;
@@ -193,26 +192,13 @@ function GenomeFirewall() {
   const attachAudio = (data: ScanData) => {
     const payload = data.audioPayload ?? data.audioUrl;
     if (!payload || typeof window === "undefined") return;
+    if (revokeAudioUrlRef.current) {
+      revokeAudioUrlRef.current();
+      revokeAudioUrlRef.current = null;
+    }
     const playback = audioPayloadToPlaybackUrl(payload);
     revokeAudioUrlRef.current = playback.revoke ?? null;
-    const audio = new Audio(playback.url);
-    audio.preload = "auto";
-    audio.muted = false;
-    audio.volume = 1.0;
-    audioRef.current = audio;
-    const markReady = () => setAudioReady(true);
-    audio.addEventListener("canplaythrough", markReady);
-    audio.addEventListener("canplay", markReady);
-    audio.addEventListener("loadeddata", markReady);
-    audio.addEventListener("play", () => setPlaying(true));
-    audio.addEventListener("pause", () => setPlaying(false));
-    audio.addEventListener("ended", () => setPlaying(false));
-    audio.addEventListener("error", () => { if (!(audio as any).__disposed) setError("Audio failed to load"); });
-    audio.load();
-    // Blob URLs are local browser files — enable playback immediately as a fallback.
-    if (playback.url.startsWith("blob:")) {
-      setTimeout(() => setAudioReady(true), 0);
-    }
+    setAudioSrc(playback.url);
   };
 
   const openHistory = (entry: { data: ScanData }) => {
@@ -225,6 +211,7 @@ function GenomeFirewall() {
     setScanData(entry.data);
     attachAudio(entry.data);
   };
+
 
 
   const onDrop = useCallback((e: React.DragEvent) => {
