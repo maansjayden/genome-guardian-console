@@ -331,17 +331,17 @@ function GenomeFirewall() {
     (async () => {
       try {
         const fromDb = await readRecentScansFromDb();
-        if (!cancelled && fromDb) setRecentScans(fromDb);
+        if (!cancelled && fromDb) setRecentScans(sanitizeRecentScans(fromDb));
         if (!cancelled && !fromDb) {
           const raw = window.localStorage.getItem(RECENT_SCANS_KEY);
           const parsed = raw ? JSON.parse(raw) : [];
-          setRecentScans(Array.isArray(parsed) ? parsed : []);
+          setRecentScans(sanitizeRecentScans(parsed));
         }
       } catch {
         try {
           const raw = window.localStorage.getItem(RECENT_SCANS_KEY);
           const parsed = raw ? JSON.parse(raw) : [];
-          if (!cancelled) setRecentScans(Array.isArray(parsed) ? parsed : []);
+          if (!cancelled) setRecentScans(sanitizeRecentScans(parsed));
         } catch {}
       } finally {
         if (!cancelled) setHistoryLoaded(true);
@@ -474,14 +474,8 @@ function GenomeFirewall() {
       if (!res.ok) throw new Error(`Backend error ${res.status}: ${await res.text()}`);
       const data = normalizeScan(await res.json());
       setScanData(data);
-      const level = data.threatLevel.toUpperCase();
-      const state =
-        level === "CRITICAL" || level === "HIGH"
-          ? "critical"
-          : level === "WARN" || level === "WARNING" || level === "MODERATE" || level === "MEDIUM"
-          ? "warn"
-          : "clear";
-      setRecentScans((prev) => [{ id: file.name, state, data, createdAt: Date.now() }, ...prev].slice(0, 8));
+      const state = threatState(data.threatLevel);
+      setRecentScans((prev) => [{ id: file.name, state, data, createdAt: Date.now() }, ...prev].slice(0, MAX_RECENT_SCANS));
       attachAudio(data).catch((err) => setError(`Audio failed to load: ${err?.message ?? err}`));
     } catch (e: any) {
       setError(e?.message ?? "Scan failed");
