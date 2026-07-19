@@ -75,29 +75,61 @@ function normalizeBase64(value: string): string {
   return compact.padEnd(compact.length + ((4 - (compact.length % 4)) % 4), "=");
 }
 
-function base64ToAudioBlob(base64: string, mime = "audio/mpeg"): Blob {
+function base64ToBytes(base64: string): Uint8Array {
   const binary = window.atob(normalizeBase64(base64));
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+function detectAudioMime(bytes: Uint8Array, fallback = "audio/mpeg"): string {
+  const header = String.fromCharCode(...bytes.slice(0, 12));
+  if (header.startsWith("ID3") || (bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0)) return "audio/mpeg";
+  if (header.startsWith("RIFF") && header.slice(8, 12) === "WAVE") return "audio/wav";
+  if (header.startsWith("OggS")) return "audio/ogg";
+  if (header.slice(4, 8) === "ftyp") return "audio/mp4";
+  return fallback;
+}
+
+function bytesLookLikeText(bytes: Uint8Array): boolean {
+  const sample = bytes.slice(0, 32);
+  return sample.every((byte) => byte === 9 || byte === 10 || byte === 13 || (byte >= 32 && byte <= 126));
+}
+
+function base64ToAudioBlob(base64: string, mime = "audio/mpeg"): Blob {
+  const bytes = base64ToBytes(base64);
+  const detectedMime = detectAudioMime(bytes, mime);
   return new Blob([bytes], { type: mime });
 }
 
 async function audioPayloadToPlaybackUrl(payload: string): Promise<AudioPlayback> {
-  if (payload.startsWith("http") || payload.startsWith("blob:")) return { url: payload };
+  let source = payload.trim().replace(/^['"]|['"]$/g, "");
+  if (source.startsWith("http") || source.startsWith("blob:")) return { url: source };
 
-  const dataUriMatch = payload.match(/^data:([^;,]+)?(;base64)?,(.*)$/s);
-  const mime = dataUriMatch?.[1] || "audio/mpeg";
-  const base64 = dataUriMatch ? dataUriMatch[3] : payload;
-  let blob: Blob;
-
-  try {
-    blob = payload.startsWith("data:") ? await (await fetch(payload)).blob() : base64ToAudioBlob(base64, mime);
-    if (!blob.size) throw new Error("Empty audio blob");
-  } catch {
-    blob = base64ToAudioBlob(base64, mime);
+  for (let depth = 0; depth < 2; depth += 1) {
+    const maybeBytes = source.startsWith("data:") ? null : base64ToBytes(source);
+    if (!maybeBytes || !bytesLookLikeText(maybeBytes)) break;
+    const decoded = new TextDecoder().decode(maybeBytes).trim().replace(/^['"]|['"]$/g, "");
+    if (!decoded.startsWith("data:audio")) break;
+    source = decoded;
   }
 
-  const audioBlob = blob.type ? blob : new Blob([await blob.arrayBuffer()], { type: mime });
+  const dataUriMatch = source.match(/^data:([^;,]+)?(?:;[^,]*)?(;base64)?,(.*)$/s);
+  const mime = dataUriMatch?.[1] || "audio/mpeg";
+  const isBase64 = !dataUriMatch || Boolean(dataUriMatch[2]) || source.includes(";base64,");
+
+  let bytes: Uint8Array;
+  if (dataUriMatch) {
+    bytes = isBase64
+      ? base64ToBytes(dataUriMatch[3])
+      : new TextEncoder().encode(decodeURIComponent(dataUriMatch[3]));
+  } else {
+    bytes = base64ToBytes(source);
+  }
+  if (!bytes.byteLength) throw new Error("Empty audio payload");
+
+  const detectedMime = detectAudioMime(bytes, mime);
+  const audioBlob = new Blob([bytes], { type: detectedMime });
   const blobUrl = URL.createObjectURL(audioBlob);
   return { url: blobUrl, blob: audioBlob, revoke: () => URL.revokeObjectURL(blobUrl) };
 }
