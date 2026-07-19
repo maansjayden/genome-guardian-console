@@ -96,10 +96,16 @@ function bytesLookLikeText(bytes: Uint8Array): boolean {
   return sample.every((byte) => byte === 9 || byte === 10 || byte === 13 || (byte >= 32 && byte <= 126));
 }
 
+function bytesToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  return buffer;
+}
+
 function base64ToAudioBlob(base64: string, mime = "audio/mpeg"): Blob {
   const bytes = base64ToBytes(base64);
   const detectedMime = detectAudioMime(bytes, mime);
-  return new Blob([bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)], { type: detectedMime });
+  return new Blob([bytesToArrayBuffer(bytes)], { type: detectedMime });
 }
 
 async function audioPayloadToPlaybackUrl(payload: string): Promise<AudioPlayback> {
@@ -129,7 +135,7 @@ async function audioPayloadToPlaybackUrl(payload: string): Promise<AudioPlayback
   if (!bytes.byteLength) throw new Error("Empty audio payload");
 
   const detectedMime = detectAudioMime(bytes, mime);
-  const audioBlob = new Blob([bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)], { type: detectedMime });
+  const audioBlob = new Blob([bytesToArrayBuffer(bytes)], { type: detectedMime });
   const blobUrl = URL.createObjectURL(audioBlob);
   return { url: blobUrl, blob: audioBlob, revoke: () => URL.revokeObjectURL(blobUrl) };
 }
