@@ -74,7 +74,12 @@ function normalizeScan(raw: any): ScanData {
       : (confidenceNum ?? "—").toString();
 
   let audioUrl: string | undefined;
-  if (typeof raw?.audio_url === "string") audioUrl = raw.audio_url;
+  const payload = raw?.audio_payload;
+  if (typeof payload === "string" && payload.length) {
+    audioUrl = payload.startsWith("data:") || payload.startsWith("http")
+      ? payload
+      : `data:audio/mpeg;base64,${payload}`;
+  } else if (typeof raw?.audio_url === "string") audioUrl = raw.audio_url;
   else if (typeof raw?.audio_base64 === "string")
     audioUrl = `data:audio/mpeg;base64,${raw.audio_base64}`;
   else if (typeof raw?.audio === "string")
@@ -82,6 +87,7 @@ function normalizeScan(raw: any): ScanData {
       raw.audio.startsWith("http") || raw.audio.startsWith("data:")
         ? raw.audio
         : `data:audio/mpeg;base64,${raw.audio}`;
+
 
   return {
     threatLevel: level,
