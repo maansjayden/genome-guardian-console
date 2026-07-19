@@ -60,9 +60,25 @@ type ScanData = {
 type RecentScan = { id: string; state: string; data: ScanData; createdAt: number };
 
 const RECENT_SCANS_KEY = "gf.recentScans";
+const MAX_RECENT_SCANS = 8;
+
+function stringList(...values: any[]): string[] {
+  return values.flatMap((value) => {
+    if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
+    if (typeof value === "string" && value.trim()) return [value.trim()];
+    return [];
+  });
+}
+
+function threatState(level: string): string {
+  const normalized = level.toUpperCase();
+  if (normalized === "CRITICAL" || normalized === "HIGH") return "critical";
+  if (["WARN", "WARNING", "MODERATE", "MEDIUM"].includes(normalized)) return "warn";
+  return "clear";
+}
 
 function normalizeAudioPayload(raw: any): string | undefined {
-  const payload = raw?.audio_payload ?? raw?.audio_base64 ?? raw?.audio ?? raw?.audio_url;
+  const payload = raw?.audio_payload ?? raw?.audioPayload ?? raw?.audio_base64 ?? raw?.audio ?? raw?.audio_url ?? raw?.audioUrl;
   if (typeof payload !== "string" || !payload.length) return undefined;
   if (payload.startsWith("data:") || payload.startsWith("http") || payload.startsWith("blob:")) return payload;
   return `data:audio/mpeg;base64,${payload}`;
@@ -176,14 +192,40 @@ function getAudioContext(): AudioContext {
 }
 
 function serializeRecentScansForStorage(scans: RecentScan[]): RecentScan[] {
-  return scans.map((scan) => ({
+  return sanitizeRecentScans(scans).map((scan) => ({
     ...scan,
     data: {
       ...scan.data,
-      audioPayload: undefined,
+      audioPayload: scan.data.audioPayload?.startsWith("blob:") ? undefined : scan.data.audioPayload,
       audioUrl: scan.data.audioUrl?.startsWith("blob:") ? undefined : scan.data.audioUrl,
     },
   }));
+}
+
+function sanitizeScanData(value: any): ScanData | null {
+  if (!value || typeof value !== "object") return null;
+  try {
+    return normalizeScan(value);
+  } catch {
+    return null;
+  }
+}
+
+function sanitizeRecentScans(value: any): RecentScan[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry, index): RecentScan | null => {
+      if (!entry || typeof entry !== "object") return null;
+      const data = sanitizeScanData(entry.data ?? entry.scanData ?? entry.result);
+      if (!data) return null;
+      const id = typeof entry.id === "string" && entry.id.trim() ? entry.id : `scan-${index + 1}`;
+      const state = typeof entry.state === "string" ? entry.state : threatState(data.threatLevel);
+      const createdAt = Number.isFinite(entry.createdAt) ? Number(entry.createdAt) : Date.now() - index;
+      return { id, state, data, createdAt };
+    })
+    .filter((entry): entry is RecentScan => Boolean(entry))
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .slice(0, MAX_RECENT_SCANS);
 }
 
 function openRecentScansDb(): Promise<IDBDatabase> {
@@ -216,11 +258,7 @@ async function writeRecentScansToDb(scans: RecentScan[]): Promise<void> {
 }
 
 function normalizeScan(raw: any): ScanData {
-  const mutations: string[] = Array.isArray(raw?.mutations)
-    ? raw.mutations
-    : raw?.mutation
-    ? [raw.mutation]
-    : raw?.detected_mutations ?? [];
+  const mutations = stringList(raw?.mutations, raw?.mutation, raw?.detected_mutations, raw?.detectedMutations);
   const primary = mutations[0] ?? raw?.threat ?? "Unknown Variant";
   const level = (raw?.threat_level ?? raw?.level ?? "CRITICAL").toString().toUpperCase();
   const organism = raw?.organism ?? raw?.species;
@@ -237,7 +275,7 @@ function normalizeScan(raw: any): ScanData {
 
   return {
     threatLevel: level,
-    title: `${level}: ${primary} Detected`,
+    title: raw?.title ?? `${level}: ${primary} Detected`,
     organism,
     description:
       raw?.description ??
@@ -246,7 +284,7 @@ function normalizeScan(raw: any): ScanData {
         ? `${primary} detected in ${organism}. Review susceptibility profile below.`
         : `${primary} detected. Review susceptibility profile below.`),
     confidence,
-    mutations: mutations.length ? mutations : [primary],
+    mutations: mutations.length ? mutations : [String(primary)],
     recommended:
       Array.isArray(raw?.recommended) && raw.recommended.length
         ? raw.recommended.map((a: any) => ({
