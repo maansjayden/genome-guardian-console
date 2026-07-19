@@ -302,12 +302,18 @@ function GenomeFirewall() {
             ) : (
               <ul className="space-y-2 text-xs font-mono">
                 {recentScans.map((s, i) => (
-                  <li key={`${s.id}-${i}`} className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-muted/40 transition-colors cursor-pointer gap-2">
-                    <span className="text-muted-foreground truncate">{s.id}</span>
-                    <span className={
-                      s.state === "critical" ? "text-destructive" :
-                      s.state === "warn" ? "text-warning" : "text-success"
-                    }>{s.state.toUpperCase()}</span>
+                  <li key={`${s.id}-${i}`}>
+                    <button
+                      type="button"
+                      onClick={() => openHistory(s)}
+                      className="w-full flex items-center justify-between py-1.5 px-2 rounded hover:bg-muted/40 transition-colors gap-2 text-left"
+                    >
+                      <span className="text-muted-foreground truncate">{s.id}</span>
+                      <span className={
+                        s.state === "critical" ? "text-destructive" :
+                        s.state === "warn" ? "text-warning" : "text-success"
+                      }>{s.state.toUpperCase()}</span>
+                    </button>
                   </li>
                 ))}
               </ul>
