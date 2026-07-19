@@ -394,6 +394,10 @@ function GenomeFirewall() {
     }
   };
 
+  const onFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    onSelect(e.currentTarget.files?.[0] ?? null);
+  };
+
   const scan = async () => {
     if (!file) return;
     setScanning(true);
@@ -657,7 +661,8 @@ function GenomeFirewall() {
                 type="file"
                 accept=".fasta,.fastq,.fa,.gb,.txt"
                 className="hidden"
-                onChange={(e) => onSelect(e.target.files?.[0] ?? null)}
+                onChange={onFileInput}
+                onInput={onFileInput}
                 onClick={(e) => { e.currentTarget.value = ""; }}
               />
             </label>
