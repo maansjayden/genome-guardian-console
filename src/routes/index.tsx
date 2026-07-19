@@ -394,7 +394,7 @@ function GenomeFirewall() {
     }
   };
 
-  const onFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const onFileInput = (e: React.ChangeEvent<HTMLInputElement> | React.FormEvent<HTMLInputElement>) => {
     onSelect(e.currentTarget.files?.[0] ?? null);
   };
 
